@@ -207,8 +207,8 @@ lib/
 ## ⚙️ Panduan Instalasi & Menjalankan Proyek
 
 ### 1. Prasyarat Sistem
-* [Flutter SDK](https://docs.flutter.dev/get-started/install) versi 3.19.x atau yang lebih baru.
-* [Dart SDK](https://dart.dev/get-dart) versi 3.x.
+* [Flutter SDK](https://docs.flutter.dev/get-started/install) **3.35.6**, dengan Dart **3.9.2**, sesuai lingkungan verifikasi build. Batas SDK Dart proyek adalah `^3.9.2`.
+* JDK **17** untuk Android Gradle Plugin 8.9.1 dan Gradle 8.12.
 * Android Studio / VS Code dengan ekstensi Flutter & Dart.
 * Android SDK (API Level 21+) atau perangkat fisik Android/iOS dengan mode Developer diaktifkan.
 
@@ -264,6 +264,22 @@ flutter run
 flutter build apk --release
 ```
 File output APK siap pasang akan berada di: `build/app/outputs/flutter-apk/app-release.apk`.
+
+### 7. Pemeriksaan Lokal
+
+Setelah `flutter pub get`, jalankan dari root proyek:
+
+```bash
+flutter analyze --no-pub
+flutter test --no-pub
+flutter build apk --debug --no-pub
+```
+
+APK debug berada di `build/app/outputs/flutter-apk/app-debug.apk`.
+
+Test di `test/widget_test.dart` membuka `MyApp` dengan konfigurasi Supabase sintetis, HTTP mock, penyimpanan dalam memori, dan mock channel OneSignal. Test mencakup login tanpa sesi, validasi form guru/wali, kegagalan login, login admin, pengalihan sesi guru aktif, profil yang belum tersedia, serta dashboard anak aktif. Tidak diperlukan akun sekolah atau koneksi backend untuk skenario ini. Ini pengujian widget dan navigasi pada viewport 800 × 1200, bukan uji kamera, push Android, atau otorisasi server.
+
+`android/gradle.properties` menonaktifkan Jetifier karena dependency saat ini sudah AndroidX. Ini menghindari transformasi ulang library Flutter yang sebelumnya kehabisan heap Java; batas heap dan jumlah worker tetap dibatasi untuk mesin dengan RAM terbatas. Evaluasi kembali kebutuhan Jetifier jika menambahkan dependency Android lama.
 
 ---
 
