@@ -1,3 +1,4 @@
+import '../../core/safe_log.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
@@ -33,75 +34,70 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Future<void> _checkAuth() async {
     await Future.delayed(Duration.zero);
 
-    debugPrint('--- [DEBUG] MULAI PENGECEKAN AUTH ---');
+    SafeLog.debug('auth_wrapper.debug_mulai_pengecekan_auth');
 
-    // 1. Check if Wali Murid has active local session
-    final hasWaliSession = await waliStorageService.hasActiveSession();
-    if (hasWaliSession) {
-      debugPrint('--- [DEBUG] Sesi Wali Murid Ditemukan. Mengarahkan ke WaliDashboard. ---');
-      final children = await waliStorageService.getSavedChildren();
-      if (children.isNotEmpty) {
-        waliStorageService.syncOneSignalTags(children).catchError((_) {});
-      }
-      if (!mounted) return;
-      _navigateTo(const WaliDashboardScreen());
-      return;
-    }
-
-    // 2. Check if user has valid Supabase session
+    // Cached children never establish authentication or ownership.
     if (!_authRepository.hasValidSession) {
-      debugPrint('--- [DEBUG] Session Kosong. Mengarahkan ke Login. ---');
+      SafeLog.debug('auth_wrapper.debug_session_kosong_mengarahkan_ke_login');
       if (!mounted) return;
       _navigateTo(const LoginScreen());
       return;
     }
 
     final userId = _authRepository.currentUserId;
-    debugPrint('--- [DEBUG] User UID: $userId');
+    SafeLog.debug('auth_wrapper.debug_user_uid');
 
     try {
+      await _authRepository.validateSession();
       final role = await _authRepository.getCurrentUserRole();
-      debugPrint('--- [DEBUG] Role ditemukan: ${role?.value} ---');
+      SafeLog.debug('auth_wrapper.debug_role_ditemukan');
 
       if (role == null) {
-        debugPrint('!!! [CRITICAL ERROR] Data tidak ditemukan di tabel guru !!!');
-        if (mounted) {
-          setState(() {
-            _isError = true;
-            _errorMessage =
-                'Akun terdaftar di Auth, tapi data profil \'guru\' belum dibuat.\n\nUser ID: $userId';
-          });
+        final children = await WaliRepository().getLinkedChildren();
+        if (children.isEmpty) {
+          await waliStorageService.clearAll();
+          _handleError(
+            'Belum ada anak yang ditautkan ke akun ini. Hubungi admin sekolah.',
+          );
+          return;
         }
+        await waliStorageService.replaceSavedChildren(children);
+        waliStorageService.syncOneSignalTags(children).catchError((_) {});
+        if (!mounted) return;
+        _navigateTo(const WaliDashboardScreen());
         return;
       }
 
       // Sync OneSignal session & user role (non-blocking)
       if (userId != null) {
         OneSignalService.loginUser(userId).catchError((_) {});
-        OneSignalService.setUserRole(role.value).catchError((_) {});
       }
 
       if (!mounted) return;
 
       switch (role) {
         case UserRole.guru:
-          debugPrint('--- [DEBUG] Redirect ke Dashboard Guru ---');
+          SafeLog.debug('auth_wrapper.debug_redirect_ke_dashboard_guru');
           _navigateTo(const DashboardScreen());
           break;
         case UserRole.admin:
-          debugPrint('--- [DEBUG] Redirect ke Scan Dashboard ---');
+          SafeLog.debug('auth_wrapper.debug_redirect_ke_scan_dashboard');
           _navigateTo(const ScanDashboardScreen());
           break;
       }
-    } on RepositoryException catch (e) {
-      _handleError('Error Database: ${e.message}');
-    } catch (e) {
-      _handleError('Error tidak terduga: $e');
+    } on RepositoryException {
+      _handleError(
+        'Akses akun belum tersedia. Hubungi admin sekolah atau coba lagi.',
+      );
+    } catch (_) {
+      _handleError(
+        'Sesi belum dapat diverifikasi. Periksa koneksi dan coba lagi.',
+      );
     }
   }
 
   void _handleError(String message) {
-    debugPrint('!!! [EXCEPTION] $message');
+    SafeLog.debug('auth_wrapper.exception');
     if (mounted) {
       setState(() {
         _isError = true;
@@ -111,9 +107,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   void _navigateTo(Widget page) {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => page),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => page));
   }
 
   Future<void> _handleLogout() async {
@@ -134,18 +130,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 80,
-                    color: Colors.red,
-                  ),
+                  const Icon(Icons.error_outline, size: 80, color: Colors.red),
                   const SizedBox(height: 24),
                   const Text(
                     'Terjadi Kesalahan',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
                   Text(

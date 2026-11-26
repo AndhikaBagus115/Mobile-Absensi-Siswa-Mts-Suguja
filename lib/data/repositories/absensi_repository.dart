@@ -1,5 +1,6 @@
+import '../../core/safe_log.dart';
+import '../services/private_document_service.dart';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -55,17 +56,19 @@ class AbsensiRepository {
 
       final schedule = KelasSchedule(
         kelasId: kelasId,
-        jamMasuk: response?[KelasColumns.jamMasuk] as String? ??
+        jamMasuk:
+            response?[KelasColumns.jamMasuk] as String? ??
             Kelas.defaultJamMasuk,
-        jamPulang: response?[KelasColumns.jamPulang] as String? ??
+        jamPulang:
+            response?[KelasColumns.jamPulang] as String? ??
             Kelas.defaultJamPulang,
       );
 
       // Cache the result
       _scheduleCache[kelasId] = schedule;
       return schedule;
-    } on supabase.PostgrestException catch (e) {
-      debugPrint('Error fetching schedule: ${e.message}');
+    } on supabase.PostgrestException {
+      SafeLog.debug('absensi_repository.error_fetching_schedule');
       // Return default schedule on error
       return KelasSchedule(
         kelasId: kelasId,
@@ -97,7 +100,9 @@ class AbsensiRepository {
       // Check existing attendance
       final existingData = await _client
           .from(DbTables.absensi)
-          .select('${AbsensiColumns.id}, ${AbsensiColumns.waktuMasuk}, ${AbsensiColumns.waktuPulang}, ${AbsensiColumns.status}')
+          .select(
+            '${AbsensiColumns.id}, ${AbsensiColumns.waktuMasuk}, ${AbsensiColumns.waktuPulang}, ${AbsensiColumns.status}',
+          )
           .eq(AbsensiColumns.siswaId, siswaId)
           .eq(AbsensiColumns.tanggal, todayStr)
           .maybeSingle();
@@ -105,7 +110,8 @@ class AbsensiRepository {
       // If student is already marked as Alfa, Sakit, or Izin, reject scanner changes
       if (existingData != null) {
         final currentStatus =
-            (existingData[AbsensiColumns.status] as String? ?? '').toLowerCase();
+            (existingData[AbsensiColumns.status] as String? ?? '')
+                .toLowerCase();
         if (currentStatus == 'alfa') {
           return AbsensiResult(
             success: false,
@@ -131,14 +137,16 @@ class AbsensiRepository {
       }
 
       final bool isBelumAbsenMasuk =
-          existingData == null || existingData[AbsensiColumns.waktuMasuk] == null;
+          existingData == null ||
+          existingData[AbsensiColumns.waktuMasuk] == null;
 
       if (isBelumAbsenMasuk) {
         // === CHECK-IN PROCESS ===
         final batasWaktuMasuk = DateTime.parse('$todayStr $jamMasukKelas');
         final isLate = now.isAfter(batasWaktuMasuk);
-        final statusAbsen =
-            isLate ? AttendanceStatus.terlambat : AttendanceStatus.hadir;
+        final statusAbsen = isLate
+            ? AttendanceStatus.terlambat
+            : AttendanceStatus.hadir;
 
         int? lateMinutes;
         if (isLate) {
@@ -147,11 +155,14 @@ class AbsensiRepository {
 
         if (existingData != null) {
           // Update existing record (e.g., from cron job alfa)
-          await _client.from(DbTables.absensi).update({
-            AbsensiColumns.status: statusAbsen.value,
-            AbsensiColumns.waktuMasuk: jamScanStr,
-            AbsensiColumns.updatedAt: DateTime.now().toIso8601String(),
-          }).eq('id', existingData['id']);
+          await _client
+              .from(DbTables.absensi)
+              .update({
+                AbsensiColumns.status: statusAbsen.value,
+                AbsensiColumns.waktuMasuk: jamScanStr,
+                AbsensiColumns.updatedAt: DateTime.now().toIso8601String(),
+              })
+              .eq('id', existingData['id']);
         } else {
           // Insert new record
           await _client.from(DbTables.absensi).insert({
@@ -245,11 +256,14 @@ class AbsensiRepository {
     }
 
     // Update check-out
-    await _client.from(DbTables.absensi).update({
-      AbsensiColumns.waktuPulang: jamScanStr,
-      AbsensiColumns.status: AttendanceStatus.pulang.value,
-      AbsensiColumns.updatedAt: DateTime.now().toIso8601String(),
-    }).eq('id', existingData['id']);
+    await _client
+        .from(DbTables.absensi)
+        .update({
+          AbsensiColumns.waktuPulang: jamScanStr,
+          AbsensiColumns.status: AttendanceStatus.pulang.value,
+          AbsensiColumns.updatedAt: DateTime.now().toIso8601String(),
+        })
+        .eq('id', existingData['id']);
 
     // Notifikasi dikirim otomatis oleh Supabase Edge Function
     // (trigger dari database webhook — tidak perlu kirim dari sini)
@@ -279,7 +293,8 @@ class AbsensiRepository {
         AbsensiColumns.siswaId: siswaId,
         AbsensiColumns.tanggal: tanggalStr,
         AbsensiColumns.status: status.value,
-        AbsensiColumns.keterangan: (keterangan != null && keterangan.trim().isNotEmpty)
+        AbsensiColumns.keterangan:
+            (keterangan != null && keterangan.trim().isNotEmpty)
             ? keterangan.trim()
             : null,
         if (currentUserId != null && currentUserId.isNotEmpty)
@@ -297,14 +312,16 @@ class AbsensiRepository {
         data[AbsensiColumns.waktuPulang] = null;
       }
 
-      await _client.from(DbTables.absensi).upsert(
+      await _client
+          .from(DbTables.absensi)
+          .upsert(
             data,
             onConflict: '${AbsensiColumns.siswaId}, ${AbsensiColumns.tanggal}',
           );
 
       return true;
-    } on supabase.PostgrestException catch (e) {
-      debugPrint('Error upsert absensi: ${e.message}');
+    } on supabase.PostgrestException {
+      SafeLog.debug('absensi_repository.error_upsert_absensi');
       return false;
     }
   }
@@ -334,14 +351,11 @@ class AbsensiRepository {
         'file_url': fileUrl,
       };
 
-      await _client.from('surat').upsert(
-            data,
-            onConflict: 'siswa_id, tanggal',
-          );
+      await _client.from('surat').upsert(data, onConflict: 'siswa_id, tanggal');
 
       return fileUrl;
     } catch (e) {
-      debugPrint('Error upserting surat: $e');
+      SafeLog.debug('absensi_repository.error_upserting_surat');
       return null;
     }
   }
@@ -359,7 +373,7 @@ class AbsensiRepository {
           .eq('siswa_id', siswaId)
           .eq('tanggal', tanggalStr);
     } catch (e) {
-      debugPrint('Error deleting surat: $e');
+      SafeLog.debug('absensi_repository.error_deleting_surat');
     }
   }
 
@@ -369,25 +383,7 @@ class AbsensiRepository {
     required DateTime tanggal,
     required File file,
   }) async {
-    try {
-      final tanggalStr = tanggal.toIso8601String().split('T').first;
-      final ext = file.path.split('.').last;
-      final fileName = '${siswaId}_$tanggalStr.$ext';
-      final filePath = 'absensi/$fileName';
-
-      await _client.storage.from(StorageBuckets.suratKeterangan).upload(
-            filePath,
-            file,
-            fileOptions: const supabase.FileOptions(upsert: true),
-          );
-
-      return _client.storage
-          .from(StorageBuckets.suratKeterangan)
-          .getPublicUrl(filePath);
-    } catch (e) {
-      debugPrint('Error uploading surat: $e');
-      return null;
-    }
+    return PrivateDocumentService().upload(file: file, siswaId: siswaId);
   }
 
   /// Clear schedule cache (useful after data update)

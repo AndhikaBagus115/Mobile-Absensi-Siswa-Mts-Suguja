@@ -11,10 +11,7 @@ import '../../../data/services/wali_storage_service.dart';
 class AddChildBottomSheet extends StatefulWidget {
   final ValueChanged<ChildProfile> onChildAdded;
 
-  const AddChildBottomSheet({
-    super.key,
-    required this.onChildAdded,
-  });
+  const AddChildBottomSheet({super.key, required this.onChildAdded});
 
   static Future<void> show(
     BuildContext context, {
@@ -55,7 +52,7 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
     });
 
     try {
-      final child = await _waliRepository.loginWithNis(
+      final child = await _waliRepository.findLinkedChildByNis(
         nis: _nisController.text.trim(),
       );
 
@@ -135,7 +132,7 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Hubungkan Profil Anak',
+                        'Pilih Anak Tertaut',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -145,7 +142,7 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Masukkan Nomor Induk Siswa (NIS) ananda',
+                        'Anak harus sudah ditautkan oleh admin sekolah.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xFF64748B),
@@ -160,7 +157,10 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
 
             if (_errorMessage != null) ...[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF2F2),
                   borderRadius: BorderRadius.circular(12),
@@ -168,8 +168,11 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline_rounded,
-                        color: Color(0xFFEF4444), size: 20),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: Color(0xFFEF4444),
+                      size: 20,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -196,7 +199,10 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
               decoration: InputDecoration(
                 labelText: 'Nomor Induk Siswa (NIS)',
                 hintText: 'Contoh: 12345',
-                prefixIcon: const Icon(Icons.badge_outlined, color: Color(0xFF2563EB)),
+                prefixIcon: const Icon(
+                  Icons.badge_outlined,
+                  color: Color(0xFF2563EB),
+                ),
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
                 border: OutlineInputBorder(
@@ -209,11 +215,16 @@ class _AddChildBottomSheetState extends State<AddChildBottomSheet> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFF2563EB), width: 2),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF2563EB),
+                    width: 2,
+                  ),
                 ),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'NIS siswa wajib diisi';
+                if (v == null || v.trim().isEmpty) {
+                  return 'NIS siswa wajib diisi';
+                }
                 return null;
               },
             ),

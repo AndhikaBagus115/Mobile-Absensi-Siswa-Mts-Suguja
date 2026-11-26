@@ -1,3 +1,5 @@
+import '../../core/safe_log.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,8 +8,6 @@ import '../../core/constants.dart';
 import '../../core/exceptions.dart';
 import '../../core/ui/bouncing_widget.dart';
 import '../../data/repositories/repositories.dart';
-import '../../data/services/wali_storage_service.dart';
-import '../wali/wali_dashboard_screen.dart';
 import 'auth_wrapper.dart';
 
 enum LoginMode { guru, wali }
@@ -25,10 +25,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _nisController = TextEditingController();
+  final _contactController = TextEditingController();
+  final _otpController = TextEditingController();
+  String? _requestedContact;
+  int _otpCooldown = 0;
+  Timer? _otpTimer;
 
   final _authRepository = AuthRepository();
-  final _waliRepository = WaliRepository();
 
   LoginMode _selectedMode = LoginMode.guru;
   bool _obscurePassword = true;
@@ -38,7 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nisController.dispose();
+    _contactController.dispose();
+    _otpController.dispose();
+    _otpTimer?.cancel();
     super.dispose();
   }
 
@@ -48,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      debugPrint('--- [LOGIN GURU] Email: ${_emailController.text.trim()} ---');
+      SafeLog.debug('form_login.login_guru_email');
       await _authRepository.signIn(
         email: _emailController.text.trim(),
         password: _passwordController.text,
@@ -70,33 +75,62 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleWaliLogin() async {
-    if (!_waliFormKey.currentState!.validate()) return;
-
+    if (_isLoading || !_waliFormKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-
     try {
-      final nis = _nisController.text.trim();
-
-      debugPrint('--- [LOGIN WALI] NIS: $nis ---');
-      final child = await _waliRepository.loginWithNis(
-        nis: nis,
-      );
-
-      // Save child to local storage and sync OneSignal
-      await waliStorageService.saveChild(child, makeActive: true);
-
-      HapticFeedback.mediumImpact();
-
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const WaliDashboardScreen()),
+      if (_requestedContact == null) {
+        await _requestOtp();
+      } else {
+        await _authRepository.verifyParentOtp(
+          contact: _requestedContact!,
+          token: _otpController.text,
+        );
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthWrapper()),
+          (_) => false,
         );
       }
-    } catch (e) {
-      final msg = ErrorFormatter.format(e);
-      _showErrorSnackbar(msg);
-      HapticFeedback.vibrate();
+    } catch (_) {
+      _showErrorSnackbar(
+        _requestedContact == null
+            ? 'Kode belum dapat dikirim. Coba lagi atau hubungi admin sekolah.'
+            : 'Kode OTP tidak valid atau kedaluwarsa. Silakan coba lagi.',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _requestOtp() async {
+    if (_otpCooldown > 0) return;
+    final contact = AuthRepository.normalizeParentContact(
+      _contactController.text,
+    );
+    await _authRepository.requestParentOtp(contact);
+    if (!mounted) return;
+    setState(() {
+      _requestedContact = contact;
+      _otpCooldown = 60;
+    });
+    _otpTimer?.cancel();
+    _otpTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _otpCooldown <= 1) {
+        timer.cancel();
+        if (mounted) setState(() => _otpCooldown = 0);
+        return;
+      }
+      setState(() => _otpCooldown--);
+    });
+  }
+
+  Future<void> _resendOtp() async {
+    if (_isLoading || _otpCooldown > 0) return;
+    setState(() => _isLoading = true);
+    try {
+      await _requestOtp();
+    } catch (_) {
+      _showErrorSnackbar('Kode belum dapat dikirim ulang. Silakan coba lagi.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -110,7 +144,11 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
+            const Icon(
+              Icons.info_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -188,36 +226,36 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           // Logo / Icon with glowing ring
           Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 15,
-                  offset: const Offset(0, 6),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 15,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: CircleAvatar(
-              radius: 40,
-              backgroundColor: Colors.white,
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/logoMts.png',
-                  width: 66,
-                  height: 66,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.school_rounded,
-                    size: 44,
-                    color: Color(0xFF2563EB),
+                child: CircleAvatar(
+                  radius: 40,
+                  backgroundColor: Colors.white,
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/logoMts.png',
+                      width: 66,
+                      height: 66,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => const Icon(
+                        Icons.school_rounded,
+                        size: 44,
+                        color: Color(0xFF2563EB),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          )
+              )
               .animate()
               .scale(duration: 600.ms, curve: Curves.easeOutBack)
               .shimmer(delay: 700.ms, duration: 1200.ms, color: Colors.white38),
@@ -226,15 +264,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
           // App / School Title
           Text(
-            AppConstants.schoolName,
-            style: const TextStyle(
-              fontSize: 21,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-              letterSpacing: 0.3,
-            ),
-            textAlign: TextAlign.center,
-          )
+                AppConstants.schoolName,
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: 0.3,
+                ),
+                textAlign: TextAlign.center,
+              )
               .animate()
               .fadeIn(delay: 200.ms, duration: 500.ms)
               .slideY(begin: 0.2, end: 0),
@@ -243,28 +281,35 @@ class _LoginScreenState extends State<LoginScreen> {
 
           // Subtitle Badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white30, width: 1),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.qr_code_scanner_rounded, size: 14, color: Colors.white),
-                SizedBox(width: 6),
-                Text(
-                  'Sistem Presensi Digital Siswa',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 5,
                 ),
-              ],
-            ),
-          )
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white30, width: 1),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.qr_code_scanner_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Sistem Presensi Digital Siswa',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
               .animate()
               .fadeIn(delay: 350.ms, duration: 500.ms)
               .scale(begin: const Offset(0.9, 0.9)),
@@ -275,47 +320,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildMainForm() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF1E3A8A).withValues(alpha: 0.08),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Mode Selector Tabs (Guru / Admin vs Wali Murid)
-              _buildModeSelector(),
-              const SizedBox(height: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Mode Selector Tabs (Guru / Admin vs Wali Murid)
+                  _buildModeSelector(),
+                  const SizedBox(height: 24),
 
-              // Animated Form Switcher
-              AnimatedCrossFade(
-                duration: const Duration(milliseconds: 300),
-                crossFadeState: _selectedMode == LoginMode.guru
-                    ? CrossFadeState.showFirst
-                    : CrossFadeState.showSecond,
-                firstChild: _buildGuruForm(),
-                secondChild: _buildWaliForm(),
+                  // Animated Form Switcher
+                  AnimatedCrossFade(
+                    duration: const Duration(milliseconds: 300),
+                    crossFadeState: _selectedMode == LoginMode.guru
+                        ? CrossFadeState.showFirst
+                        : CrossFadeState.showSecond,
+                    firstChild: _buildGuruForm(),
+                    secondChild: _buildWaliForm(),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
-    )
+        )
         .animate()
         .fadeIn(delay: 300.ms, duration: 600.ms)
         .slideY(begin: 0.15, end: 0, curve: Curves.easeOutCubic);
@@ -374,8 +419,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: _selectedMode == LoginMode.guru
-                          ? const Color(0xFF1E293B)
-                          : const Color(0xFF64748B),
+                            ? const Color(0xFF1E293B)
+                            : const Color(0xFF64748B),
                       ),
                     ),
                   ],
@@ -428,8 +473,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: _selectedMode == LoginMode.wali
-                          ? const Color(0xFF1E293B)
-                          : const Color(0xFF64748B),
+                            ? const Color(0xFF1E293B)
+                            : const Color(0xFF64748B),
                       ),
                     ),
                   ],
@@ -472,7 +517,10 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: InputDecoration(
               labelText: 'Email Akun',
               hintText: 'nama@sekolah.sch.id',
-              prefixIcon: const Icon(Icons.alternate_email_rounded, color: Color(0xFF2563EB)),
+              prefixIcon: const Icon(
+                Icons.alternate_email_rounded,
+                color: Color(0xFF2563EB),
+              ),
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
               border: OutlineInputBorder(
@@ -485,7 +533,10 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 2),
+                borderSide: const BorderSide(
+                  color: Color(0xFF2563EB),
+                  width: 2,
+                ),
               ),
             ),
             validator: (value) {
@@ -510,7 +561,10 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: InputDecoration(
               labelText: 'Kata Sandi',
               hintText: 'Masukkan password',
-              prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF2563EB)),
+              prefixIcon: const Icon(
+                Icons.lock_outline_rounded,
+                color: Color(0xFF2563EB),
+              ),
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword
@@ -534,7 +588,10 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 2),
+                borderSide: const BorderSide(
+                  color: Color(0xFF2563EB),
+                  width: 2,
+                ),
               ),
             ),
             validator: (value) {
@@ -560,6 +617,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildWaliForm() {
+    final awaitingCode = _requestedContact != null;
     return Form(
       key: _waliFormKey,
       child: Column(
@@ -569,61 +627,122 @@ class _LoginScreenState extends State<LoginScreen> {
             'Portal Wali Murid',
             style: TextStyle(
               fontSize: 18,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.bold,
               color: Color(0xFF1E293B),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           const Text(
-            'Pantau presensi kehadiran ananda secara langsung',
+            'Masuk dengan OTP ke kontak yang didaftarkan sekolah.',
             style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 20),
-
-          // NIS Field
           TextFormField(
-            controller: _nisController,
-            keyboardType: TextInputType.number,
+            controller: _contactController,
+            enabled: !awaitingCode && !_isLoading,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [
+              AutofillHints.email,
+              AutofillHints.telephoneNumber,
+            ],
             textInputAction: TextInputAction.done,
             onFieldSubmitted: (_) => _handleWaliLogin(),
-            style: const TextStyle(fontWeight: FontWeight.w500),
-            decoration: InputDecoration(
-              labelText: 'Nomor Induk Siswa (NIS)',
-              hintText: 'Contoh: 12345',
-              prefixIcon: const Icon(Icons.badge_outlined, color: Color(0xFF2563EB)),
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey.shade300),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey.shade200),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF2563EB), width: 2),
-              ),
+            decoration: _otpDecoration(
+              'Email atau nomor HP terdaftar',
+              Icons.contact_mail_outlined,
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return 'NIS siswa wajib diisi';
+                return 'Kontak terdaftar wajib diisi';
               }
-              return null;
+              try {
+                AuthRepository.normalizeParentContact(value);
+                return null;
+              } catch (_) {
+                return 'Masukkan email atau nomor HP yang valid';
+              }
             },
           ),
+          if (awaitingCode) ...[
+            const SizedBox(height: 16),
+            const Text(
+              'Masukkan kode 6 angka dari email atau SMS Anda.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _otpController,
+              keyboardType: TextInputType.number,
+              autofillHints: const [AutofillHints.oneTimeCode],
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 6,
+              enabled: !_isLoading,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _handleWaliLogin(),
+              decoration: _otpDecoration('Kode OTP', Icons.password_rounded),
+              validator: (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
+                  ? null
+                  : 'Kode OTP harus terdiri dari 6 angka',
+            ),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: _isLoading || _otpCooldown > 0 ? null : _resendOtp,
+                  child: Text(
+                    _otpCooldown > 0
+                        ? 'Kirim ulang ($_otpCooldown dtk)'
+                        : 'Kirim ulang OTP',
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() {
+                          _requestedContact = null;
+                          _otpController.clear();
+                        }),
+                  child: const Text('Ganti kontak'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 24),
-
-          // Submit Button
           BouncingWidget(
-            onTap: _isLoading ? null : _handleWaliLogin,
-            child: _buildSubmitButton(label: 'MASUK SEBAGAI WALI MURID'),
+            onTap: _isLoading || (!awaitingCode && _otpCooldown > 0)
+                ? null
+                : _handleWaliLogin,
+            child: _buildSubmitButton(
+              label: awaitingCode ? 'VERIFIKASI OTP' : 'KIRIM KODE OTP',
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Akun dan hubungan anak dikelola oleh admin sekolah. NIS tidak digunakan untuk masuk.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: Color(0xFF64748B),
+            ),
           ),
         ],
       ),
     );
   }
+
+  InputDecoration _otpDecoration(String label, IconData icon) =>
+      InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: const Color(0xFF2563EB)),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+      );
 
   Widget _buildSubmitButton({required String label}) {
     return Container(
@@ -671,7 +790,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                 ],
               ),
       ),
@@ -686,7 +809,11 @@ class _LoginScreenState extends State<LoginScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.verified_user_rounded, size: 14, color: Color(0xFF94A3B8)),
+              const Icon(
+                Icons.verified_user_rounded,
+                size: 14,
+                color: Color(0xFF94A3B8),
+              ),
               const SizedBox(width: 6),
               Text(
                 '© ${DateTime.now().year} ${AppConstants.schoolName}',

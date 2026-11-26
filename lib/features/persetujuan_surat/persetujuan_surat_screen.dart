@@ -1,3 +1,4 @@
+import '../../core/ui/private_document_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -12,11 +13,7 @@ class PersetujuanSuratScreen extends StatefulWidget {
   final int? kelasId;
   final String? namaKelas;
 
-  const PersetujuanSuratScreen({
-    super.key,
-    this.kelasId,
-    this.namaKelas,
-  });
+  const PersetujuanSuratScreen({super.key, this.kelasId, this.namaKelas});
 
   @override
   State<PersetujuanSuratScreen> createState() => _PersetujuanSuratScreenState();
@@ -86,8 +83,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            const Icon(Icons.check_circle_rounded,
-                color: Color(0xFF10B981), size: 22),
+            const Icon(
+              Icons.check_circle_rounded,
+              color: Color(0xFF10B981),
+              size: 22,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -185,10 +185,7 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
             Expanded(
               child: Text(
                 'Tolak Pengajuan Surat',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -286,8 +283,9 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
             ),
           ],
         ),
-        backgroundColor:
-            isError ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+        backgroundColor: isError
+            ? const Color(0xFFDC2626)
+            : const Color(0xFF10B981),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: isError ? 4 : 3),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -328,8 +326,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
         backgroundColor: const Color(0xFF1E3A8A),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: Colors.white, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
@@ -345,8 +346,10 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           isScrollable: true,
-          labelStyle:
-              const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
           tabs: [
             Tab(
               child: Row(
@@ -356,7 +359,9 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                     const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEF4444),
                         borderRadius: BorderRadius.circular(10),
@@ -364,9 +369,10 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                       child: Text(
                         '$pendingCount',
                         style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold),
+                          fontSize: 10,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -469,8 +475,8 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
         break;
     }
 
-    final dateDisplay = item.tanggalSelesai != null &&
-            item.tanggalSelesai != item.tanggal
+    final dateDisplay =
+        item.tanggalSelesai != null && item.tanggalSelesai != item.tanggal
         ? '${item.tanggal} s/d ${item.tanggalSelesai}'
         : item.tanggal;
 
@@ -536,8 +542,7 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: statusBg,
                   borderRadius: BorderRadius.circular(8),
@@ -572,8 +577,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.calendar_today_rounded,
-                    size: 13, color: Color(0xFF475569)),
+                const Icon(
+                  Icons.calendar_today_rounded,
+                  size: 13,
+                  color: Color(0xFF475569),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Tanggal: $dateDisplay',
@@ -636,7 +644,7 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
+                      PrivateDocumentImage(
                         item.fileUrl!,
                         fit: BoxFit.cover,
                         loadingBuilder: (context, child, progress) {
@@ -653,12 +661,19 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                           child: const Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.broken_image_rounded,
-                                  color: Color(0xFF94A3B8), size: 32),
+                              Icon(
+                                Icons.broken_image_rounded,
+                                color: Color(0xFF94A3B8),
+                                size: 32,
+                              ),
                               SizedBox(height: 4),
-                              Text('Gagal memuat gambar',
-                                  style: TextStyle(
-                                      fontSize: 11, color: Color(0xFF94A3B8))),
+                              Text(
+                                'Gagal memuat gambar',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF94A3B8),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -668,7 +683,9 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                         right: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.65),
                             borderRadius: BorderRadius.circular(8),
@@ -676,8 +693,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.zoom_in_rounded,
-                                  color: Colors.white, size: 14),
+                              Icon(
+                                Icons.zoom_in_rounded,
+                                color: Colors.white,
+                                size: 14,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 'Ketuk untuk Zoom',
@@ -710,8 +730,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.chat_rounded,
-                      size: 14, color: Color(0xFF64748B)),
+                  const Icon(
+                    Icons.chat_rounded,
+                    size: 14,
+                    color: Color(0xFF64748B),
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -748,8 +771,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.close_rounded,
-                              color: Color(0xFFDC2626), size: 16),
+                          Icon(
+                            Icons.close_rounded,
+                            color: Color(0xFFDC2626),
+                            size: 16,
+                          ),
                           SizedBox(width: 6),
                           Text(
                             'Tolak',
@@ -777,8 +803,9 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color:
-                                const Color(0xFF10B981).withValues(alpha: 0.25),
+                            color: const Color(
+                              0xFF10B981,
+                            ).withValues(alpha: 0.25),
                             blurRadius: 8,
                             offset: const Offset(0, 3),
                           ),
@@ -787,8 +814,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.check_rounded,
-                              color: Colors.white, size: 16),
+                          Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
                           SizedBox(width: 6),
                           Text(
                             'Setujui',
@@ -827,7 +857,11 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                 icon: const CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.black54,
-                  child: Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
               ),
             ),
@@ -843,7 +877,7 @@ class _PersetujuanSuratScreenState extends State<PersetujuanSuratScreen>
                   panEnabled: true,
                   minScale: 0.5,
                   maxScale: 4.0,
-                  child: Image.network(
+                  child: PrivateDocumentImage(
                     url,
                     fit: BoxFit.contain,
                     loadingBuilder: (context, child, progress) {

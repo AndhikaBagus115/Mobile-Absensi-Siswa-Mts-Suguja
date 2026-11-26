@@ -7,13 +7,14 @@ import 'package:app_absensi_mts/features/wali/wali_dashboard_screen.dart';
 import 'package:app_absensi_mts/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'support/test_backend.dart';
+import 'package:app_absensi_mts/data/services/secure_storage_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +23,7 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    dotenv.testLoad(fileInput: 'ONESIGNAL_APP_ID=\n');
+    FlutterSecureStorage.setMockInitialValues({});
     await initializeDateFormatting('id_ID');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(oneSignalUserChannel, (_) async => null);
@@ -31,13 +32,17 @@ void main() {
       url: TestBackend.url,
       anonKey: 'synthetic-test-key',
       httpClient: backend.client,
-      authOptions: const FlutterAuthClientOptions(autoRefreshToken: false),
+      authOptions: const FlutterAuthClientOptions(
+        autoRefreshToken: false,
+        localStorage: SecureSessionStorage(),
+        authFlowType: AuthFlowType.implicit,
+      ),
     );
   });
 
   tearDown(() async {
+    await SecureUserPreferences.clearPrivateCache();
     await Supabase.instance.dispose();
-    dotenv.clean();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(oneSignalUserChannel, null);
     expect(backend.unexpectedRequests, isEmpty);
@@ -90,11 +95,11 @@ void main() {
     expect(backend.requests, isEmpty);
   });
 
-  testApp('Form wali menolak NIS kosong tanpa request', (tester) async {
+  testApp('Form wali menolak kontak kosong tanpa request', (tester) async {
     await openApp(tester);
     await tapButton(tester, 'Wali Murid');
-    await tapButton(tester, 'MASUK SEBAGAI WALI MURID');
-    expect(find.text('NIS siswa wajib diisi'), findsOneWidget);
+    await tapButton(tester, 'KIRIM KODE OTP');
+    expect(find.text('Kontak terdaftar wajib diisi'), findsOneWidget);
     expect(backend.requests, isEmpty);
   });
 
@@ -148,7 +153,7 @@ void main() {
     expect(find.byType(ScanDashboardScreen), findsNothing);
     expect(
       backend.requests.where(
-        (request) => request.url.path.endsWith('/get_guru_dashboard_summary'),
+        (request) => request.url.path.endsWith('/siab_guru_dashboard'),
       ),
       hasLength(1),
     );
@@ -174,47 +179,161 @@ void main() {
     );
     await openApp(tester);
     expect(find.text('Terjadi Kesalahan'), findsOneWidget);
-    expect(
-      find.textContaining('data profil \'guru\' belum dibuat'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Akses akun belum tersedia'), findsOneWidget);
     expect(find.text('Coba Lagi'), findsOneWidget);
     expect(find.byType(DashboardScreen), findsNothing);
     expect(find.byType(ScanDashboardScreen), findsNothing);
   });
 
+  testApp('Cache anak tanpa sesi tidak membuka dashboard wali', (tester) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList('wali_saved_children', [
+      jsonEncode(TestBackend.child),
+    ]);
+    await preferences.setInt('wali_active_child_id', TestBackend.childId);
+    await openApp(tester);
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(WaliDashboardScreen), findsNothing);
+    expect(backend.requests, isEmpty);
+  });
+
+  testApp('NIS tidak diterima sebagai kontak OTP', (tester) async {
+    await openApp(tester);
+    await tapButton(tester, 'Wali Murid');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email atau nomor HP terdaftar'),
+      '99000001',
+    );
+    tester.testTextInput.hide();
+    await tapButton(tester, 'KIRIM KODE OTP');
+    expect(
+      find.text('Masukkan email atau nomor HP yang valid'),
+      findsOneWidget,
+    );
+    expect(backend.requests, isEmpty);
+  });
+
   testApp(
-    'Profil anak tersimpan membuka dashboard wali dan memuat anak aktif',
+    'OTP dan relasi server membuka anak aktif, logout menghapus data privat',
     (tester) async {
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setStringList('wali_saved_children', [
-        jsonEncode(TestBackend.child),
-      ]);
-      await preferences.setInt('wali_active_child_id', TestBackend.childId);
+      backend.role = 'wali_murid';
       await openApp(tester);
+      await tapButton(tester, 'Wali Murid');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Email atau nomor HP terdaftar'),
+        'wali@example.test',
+      );
+      tester.testTextInput.hide();
+      await tapButton(tester, 'KIRIM KODE OTP');
+      expect(find.text('Kode OTP'), findsOneWidget);
+      final resend = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.textContaining('Kirim ulang ('),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(resend.onPressed, isNull);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Kode OTP'),
+        '123456',
+      );
+      tester.testTextInput.hide();
+      await tapButton(tester, 'VERIFIKASI OTP');
+      await pumpUntil(tester, find.byType(WaliDashboardScreen));
       expect(find.byType(WaliDashboardScreen), findsOneWidget);
       expect(find.text('Anak Uji'), findsWidgets);
-      expect(find.byType(LoginScreen), findsNothing);
-      final attendanceRequests = backend.requests.where(
-        (request) => request.url.path == '/rest/v1/absensi',
+      final attendance = backend.requests.where(
+        (r) => r.url.path == '/rest/v1/absensi',
       );
-      expect(attendanceRequests, isNotEmpty);
+      expect(attendance, isNotEmpty);
       expect(
-        attendanceRequests.every(
-          (request) =>
-              request.url.queryParameters['siswa_id'] ==
-              'eq.${TestBackend.childId}',
+        attendance.every(
+          (r) =>
+              r.url.queryParameters['siswa_id'] == 'eq.${TestBackend.childId}',
         ),
         isTrue,
       );
+      await tester.runAsync(
+        () => Supabase.instance.client.auth.signOut(scope: SignOutScope.local),
+      );
+      await pumpUntil(tester, find.byType(LoginScreen));
+      await pumpFrames(tester); // Finish removing the previous route.
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(WaliDashboardScreen), findsNothing);
+      expect(
+        await privateStorage.containsKey(
+          key: '${SecureUserPreferences.prefix}${TestBackend.userId}',
+        ),
+        isFalse,
+      );
+      expect(
+        await privateStorage.containsKey(key: SecureSessionStorage.key),
+        isFalse,
+      );
     },
   );
+
+  testApp('OTP tanpa relasi anak tidak membuka dashboard', (tester) async {
+    backend.role = 'wali_murid';
+    backend.denyChildren = true;
+    await Supabase.instance.client.auth.recoverSession(
+      jsonEncode(backend.session),
+    );
+    await openApp(tester);
+    expect(find.text('Terjadi Kesalahan'), findsOneWidget);
+    expect(find.byType(WaliDashboardScreen), findsNothing);
+    expect(
+      backend.requests.any((r) => r.url.path == '/rest/v1/absensi'),
+      isFalse,
+    );
+  });
+
+  testApp('Sesi yang ditolak server tidak membuka data privat', (tester) async {
+    backend.invalidSession = true;
+    await Supabase.instance.client.auth.recoverSession(
+      jsonEncode(backend.session),
+    );
+    await openApp(tester);
+    expect(find.text('Terjadi Kesalahan'), findsOneWidget);
+    expect(find.byType(DashboardScreen), findsNothing);
+    expect(
+      backend.requests.every((r) => r.url.path == '/auth/v1/user'),
+      isTrue,
+    );
+  });
+
+  testApp('Log login tidak memuat email atau ID pengguna', (tester) async {
+    backend.role = 'admin';
+    final messages = <String>[];
+    final original = debugPrint;
+    try {
+      debugPrint = (String? message, {int? wrapWidth}) {
+        messages.add(message ?? '');
+      };
+      await openApp(tester);
+      await enterCredentials(tester, email: 'admin@example.test');
+      await tapButton(tester, 'MASUK SEBAGAI GURU');
+    } finally {
+      debugPrint = original;
+    }
+    expect(messages.join('\n'), isNot(contains('admin@example.test')));
+    expect(messages.join('\n'), isNot(contains(TestBackend.userId)));
+    expect(find.byType(ScanDashboardScreen), findsOneWidget);
+  });
 }
 
 Future<void> pumpFrames(WidgetTester tester) async {
   for (var frame = 0; frame < 20; frame++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+}
+
+Future<void> pumpUntil(WidgetTester tester, Finder finder) async {
+  for (var frame = 0; frame < 100; frame++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (finder.evaluate().isNotEmpty) return;
+  }
+  fail('Requested screen did not open within the bounded frame limit.');
 }
 
 Future<void> openApp(WidgetTester tester) async {

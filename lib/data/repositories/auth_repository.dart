@@ -1,10 +1,12 @@
-import 'package:flutter/foundation.dart';
+import '../../core/safe_log.dart';
+import 'package:flutter/painting.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/constants.dart';
 import '../../core/exceptions.dart';
 import '../models/models.dart';
 import '../services/onesignal_service.dart';
+import '../services/secure_storage_service.dart';
 import '../services/supabase_service.dart';
 
 /// Repository for teacher (guru) and authentication operations
@@ -26,10 +28,7 @@ class AuthRepository {
       }
       return response;
     } on supabase.AuthException catch (e) {
-      throw AuthException(
-        message: e.message,
-        originalException: e,
-      );
+      throw AuthException(message: e.message, originalException: e);
     }
   }
 
@@ -38,11 +37,82 @@ class AuthRepository {
     try {
       await OneSignalService.logoutUser();
       await _client.auth.signOut();
-    } on supabase.AuthException catch (e) {
-      debugPrint('Sign out error: ${e.message}');
+    } on supabase.AuthException {
+      SafeLog.debug('auth_repository.sign_out_error');
     } catch (e) {
-      debugPrint('Sign out error: $e');
+      SafeLog.debug('auth_repository.sign_out_error');
+    } finally {
+      try {
+        if (_client.auth.currentSession != null) {
+          await _client.auth.signOut(scope: supabase.SignOutScope.local);
+        }
+      } finally {
+        await clearLocalSessionData();
+      }
     }
+  }
+
+  static Future<void> clearLocalSessionData() async {
+    await OneSignalService.logoutUser();
+    await SecureUserPreferences.clearPrivateCache();
+    await eraseLegacyPrivatePreferences();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  }
+
+  /// Check the token with Auth before using a persisted session for routing.
+  Future<void> validateSession() async {
+    final response = await _client.auth.getUser();
+    if (response.user?.id != currentUserId) {
+      throw AuthException(message: 'Sesi tidak valid. Silakan masuk kembali.');
+    }
+  }
+
+  Future<void> requestParentOtp(String contact) async {
+    final normalized = normalizeParentContact(contact);
+    await _client.auth.signInWithOtp(
+      email: normalized.contains('@') ? normalized : null,
+      phone: normalized.contains('@') ? null : normalized,
+      shouldCreateUser: false,
+    );
+  }
+
+  Future<void> verifyParentOtp({
+    required String contact,
+    required String token,
+  }) async {
+    final normalized = normalizeParentContact(contact);
+    if (!RegExp(r'^\d{6}$').hasMatch(token.trim())) {
+      throw ValidationException(
+        message: 'Kode OTP harus terdiri dari 6 angka.',
+      );
+    }
+    final isEmail = normalized.contains('@');
+    final response = await _client.auth.verifyOTP(
+      email: isEmail ? normalized : null,
+      phone: isEmail ? null : normalized,
+      token: token.trim(),
+      type: isEmail ? supabase.OtpType.email : supabase.OtpType.sms,
+    );
+    if (response.session == null) {
+      throw AuthException(message: 'Kode OTP tidak valid atau kedaluwarsa.');
+    }
+  }
+
+  static String normalizeParentContact(String contact) {
+    final value = contact.trim();
+    if (RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value)) {
+      return value.toLowerCase();
+    }
+    var phone = value.replaceAll(RegExp(r'[\s()-]'), '');
+    if (phone.startsWith('08')) phone = '+62${phone.substring(1)}';
+    if (phone.startsWith('628')) phone = '+$phone';
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+      throw ValidationException(
+        message: 'Masukkan email atau nomor HP terdaftar yang valid.',
+      );
+    }
+    return phone;
   }
 
   /// Get current user's guru profile
@@ -80,9 +150,13 @@ class AuthRepository {
           .maybeSingle();
 
       if (response == null) return null;
-      return UserRole.fromValue(response[GuruColumns.role] as String?);
-    } on supabase.PostgrestException catch (e) {
-      debugPrint('Error getting user role: ${e.message}');
+      final value = response[GuruColumns.role] as String?;
+      for (final role in UserRole.values) {
+        if (role.value == value) return role;
+      }
+      return null;
+    } on supabase.PostgrestException {
+      SafeLog.debug('auth_repository.error_getting_user_role');
       return null;
     }
   }
@@ -145,7 +219,7 @@ class AuthRepository {
               }
             }
           } catch (e) {
-            debugPrint('Info checking class ${summary.namaKelas} today: $e');
+            SafeLog.debug('auth_repository.info_checking_class');
           }
         }
       }
@@ -194,7 +268,9 @@ class AuthRepository {
             .eq(GuruColumns.id, userId);
         return;
       } catch (e) {
-        debugPrint('[AuthRepo] Attempt 1 with foto_url & avatar_url failed ($e), trying avatar_url only...');
+        SafeLog.debug(
+          'auth_repository.authrepo_attempt_1_with_foto_url_avatar_url_failed',
+        );
       }
 
       // Attempt 2: Try avatar_url only
@@ -211,7 +287,9 @@ class AuthRepository {
               .eq(GuruColumns.id, userId);
           return;
         } catch (e) {
-          debugPrint('[AuthRepo] Attempt 2 with avatar_url failed ($e), trying foto_url only...');
+          SafeLog.debug(
+            'auth_repository.authrepo_attempt_2_with_avatar_url_failed',
+          );
         }
 
         // Attempt 3: Try foto_url only
@@ -227,7 +305,9 @@ class AuthRepository {
               .eq(GuruColumns.id, userId);
           return;
         } catch (e) {
-          debugPrint('[AuthRepo] Attempt 3 with foto_url failed ($e), trying without foto...');
+          SafeLog.debug(
+            'auth_repository.authrepo_attempt_3_with_foto_url_failed',
+          );
         }
       }
 
@@ -243,7 +323,7 @@ class AuthRepository {
             .eq(GuruColumns.id, userId);
         return;
       } catch (e) {
-        debugPrint('[AuthRepo] Attempt 4 with no_hp failed ($e), trying nama only...');
+        SafeLog.debug('auth_repository.authrepo_attempt_4_with_no_hp_failed');
       }
 
       // Attempt 5: Just nama
@@ -257,9 +337,7 @@ class AuthRepository {
         originalException: e,
       );
     } catch (e) {
-      throw RepositoryException(
-        message: 'Gagal memperbarui profil: $e',
-      );
+      throw RepositoryException(message: 'Gagal memperbarui profil: $e');
     }
   }
 
@@ -272,30 +350,17 @@ class AuthRepository {
       final ext = file.path.split('.').last;
       final fileName =
           'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-      final filePath = 'avatars/$fileName';
 
-      // Try 'avatars' bucket first, fallback to 'surat_keterangan'
-      try {
-        await _client.storage.from('avatars').upload(
-              filePath,
-              file,
-              fileOptions: const supabase.FileOptions(upsert: true),
-            );
-        return _client.storage.from('avatars').getPublicUrl(filePath);
-      } catch (e) {
-        debugPrint(
-            '[AuthRepo] Avatars bucket error, falling back to surat_keterangan: $e');
-        await _client.storage.from(StorageBuckets.suratKeterangan).upload(
-              filePath,
-              file,
-              fileOptions: const supabase.FileOptions(upsert: true),
-            );
-        return _client.storage
-            .from(StorageBuckets.suratKeterangan)
-            .getPublicUrl(filePath);
-      }
+      await _client.storage
+          .from('avatars')
+          .upload(
+            '$userId/$fileName',
+            file,
+            fileOptions: const supabase.FileOptions(upsert: false),
+          );
+      return _client.storage.from('avatars').getPublicUrl('$userId/$fileName');
     } catch (e) {
-      debugPrint('[AuthRepo] Error uploadAvatar: $e');
+      SafeLog.debug('auth_repository.authrepo_error_uploadavatar');
       throw RepositoryException(message: 'Gagal mengunggah foto profil: $e');
     }
   }
@@ -320,8 +385,9 @@ class AuthRepository {
             })
             .eq(GuruColumns.id, userId);
       } catch (e) {
-        debugPrint(
-            '[AuthRepo] Notice: could not update email column in guru table: $e');
+        SafeLog.debug(
+          'auth_repository.authrepo_notice_could_not_update_email_column_in_guru_table',
+        );
       }
     } on supabase.AuthException catch (e) {
       throw AuthException(

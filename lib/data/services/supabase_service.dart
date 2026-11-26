@@ -16,7 +16,8 @@ class SupabaseService {
   Session? get currentSession => client.auth.currentSession;
 
   /// Check if user is authenticated
-  bool get isAuthenticated => currentSession != null;
+  bool get isAuthenticated =>
+      currentSession != null && !currentSession!.isExpired;
 
   /// Get current user ID
   String? get currentUserId => currentUser?.id;

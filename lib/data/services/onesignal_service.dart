@@ -1,243 +1,104 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 import '../../core/constants.dart';
+import '../../core/safe_log.dart';
 import '../models/wali_murid_models.dart';
 import 'supabase_service.dart';
 import 'wali_storage_service.dart';
 
-/// Service to handle OneSignal Push Notifications and Attendance Alerts
+/// The SDK receives an opaque adult-account identity from the server.
+/// Sending is event-based only; the client cannot choose recipients or content.
 class OneSignalService {
-  static final OneSignalService _instance = OneSignalService._internal();
-  factory OneSignalService() => _instance;
-  OneSignalService._internal();
-
   static bool _isInitialized = false;
+  static String? _identifiedUserId;
 
-  /// Initialize OneSignal SDK
   static Future<void> initialize() async {
-    final appId = AppConstants.onesignalAppId;
-    if (appId.isEmpty) {
-      debugPrint('[OneSignal] Info: ONESIGNAL_APP_ID belum diisi di file .env');
+    if (AppConstants.onesignalAppId.isEmpty) return;
+    try {
+      OneSignal.Debug.setLogLevel(OSLogLevel.none);
+      OneSignal.Debug.setAlertLevel(OSLogLevel.none);
+      OneSignal.initialize(AppConstants.onesignalAppId);
+      // Detach legacy student/NIS aliases and prevent delivery before login.
+      await OneSignal.logout();
+      await OneSignal.User.pushSubscription.optOut();
+      _isInitialized = true;
+      OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+        if (!supabaseService.isAuthenticated) {
+          event.preventDefault();
+          return;
+        }
+        _handleIncomingPush(event.notification);
+        event.notification.display();
+      });
+      OneSignal.Notifications.addClickListener((event) {
+        if (supabaseService.isAuthenticated) {
+          _handleIncomingPush(event.notification);
+        }
+      });
+    } catch (_) {
+      SafeLog.debug('push.initialize_failed');
+    }
+  }
+
+  static void _handleIncomingPush(OSNotification notification) {
+    final data = notification.additionalData ?? {};
+    final type = data['type']?.toString() ?? 'pengumuman';
+    if (type == 'absensi' || type == 'absensi_status_update') return;
+    final safeData = <String, dynamic>{
+      for (final key in ['type', 'siswa_id', 'surat_id', 'event_id'])
+        if (data.containsKey(key)) key: data[key],
+    };
+    waliStorageService.saveInAppNotification(
+      WaliNotificationItem(
+        id: notification.notificationId,
+        title: notification.title ?? 'Pemberitahuan sekolah',
+        message: notification.body ?? '',
+        timestamp: DateTime.now(),
+        type: type,
+        isRead: false,
+        author: 'Sekolah',
+        data: safeData,
+      ),
+    );
+  }
+
+  static Future<void> loginUser(String userId) async {
+    if (!_isInitialized ||
+        !supabaseService.isAuthenticated ||
+        supabaseService.currentUserId != userId ||
+        _identifiedUserId == userId) {
       return;
     }
-
     try {
-      if (kDebugMode) {
-        OneSignal.Debug.setLogLevel(OSLogLevel.warn);
-        OneSignal.Debug.setAlertLevel(OSLogLevel.none);
-      }
-
-      // Initialize OneSignal with App ID
-      OneSignal.initialize(appId);
-
-      // Register notification listeners
-      _setupListeners();
-
-      _isInitialized = true;
-      debugPrint('[OneSignal] Berhasil diinisialisasi dengan App ID: $appId');
-
-      // Request push notification permissions asynchronously (don't block app launch)
-      OneSignal.Notifications.requestPermission(true).catchError((e) {
-        debugPrint('[OneSignal] Warning request permission: $e');
-        return false;
-      });
-    } catch (e) {
-      debugPrint('[OneSignal] Gagal inisialisasi: $e');
-    }
-  }
-
-  /// Setup notification event listeners
-  static void _setupListeners() {
-    // When notification is received while app is in foreground
-    OneSignal.Notifications.addForegroundWillDisplayListener((event) {
-      final notif = event.notification;
-      debugPrint(
-        '[OneSignal] Notifikasi diterima (Foreground): ${notif.title} - ${notif.body}',
+      // This private random identity is never the user/student ID or NIS.
+      final identity = await supabaseService.client.rpc(
+        'siab_my_push_identity',
       );
-      _handleIncomingPush(notif);
-      // Ensure notification is displayed in status bar/tray even when app is in foreground
-      event.notification.display();
-    });
-
-    // When user taps/clicks a notification
-    OneSignal.Notifications.addClickListener((event) {
-      final notif = event.notification;
-      debugPrint('[OneSignal] Notifikasi diklik: ${notif.title}');
-      _handleIncomingPush(notif);
-      final additionalData = notif.additionalData;
-      if (additionalData != null) {
-        debugPrint('[OneSignal] Data payload: $additionalData');
-      }
-    });
-
-    // Permission change observer
-    OneSignal.Notifications.addPermissionObserver((state) {
-      debugPrint('[OneSignal] Status izin notifikasi berubah: $state');
-    });
-  }
-
-  /// Automatically store announcement notifications to in-app inbox
-  static void _handleIncomingPush(OSNotification notif) {
-    try {
-      final title = notif.title ?? 'Pengumuman Sekolah';
-      final body = notif.body ?? '';
-      final additionalData = notif.additionalData ?? {};
-      final type = additionalData['type']?.toString() ?? 'pengumuman';
-
-      // Daily attendance push notifications are not stored in in-app announcement inbox
-      if (type == 'absensi' || type == 'absensi_status_update') {
+      if (identity is! String || !RegExp(r'^[a-f0-9]{64}$').hasMatch(identity)) {
         return;
       }
-
-      final notifId = notif.notificationId.isNotEmpty
-          ? notif.notificationId
-          : 'push_${DateTime.now().millisecondsSinceEpoch}';
-
-      final item = WaliNotificationItem(
-        id: notifId,
-        title: title,
-        message: body,
-        timestamp: DateTime.now(),
-        type: 'pengumuman',
-        isRead: false,
-        author: additionalData['penulis']?.toString() ??
-            additionalData['author']?.toString() ??
-            'Admin Sekolah',
-        category: additionalData['kategori']?.toString() ??
-            additionalData['category']?.toString(),
-        data: additionalData,
-      );
-
-      waliStorageService.saveInAppNotification(item);
-    } catch (e) {
-      debugPrint('[OneSignal] Error processing incoming push: $e');
+      if (supabaseService.currentUserId != userId) return;
+      await OneSignal.login(identity);
+      await OneSignal.User.pushSubscription.optIn();
+      _identifiedUserId = userId;
+      await OneSignal.Notifications.requestPermission(true);
+    } catch (_) {
+      // No alias, tag or direct-REST fallback if the server has not authorized it.
+      SafeLog.debug('push.identity_unavailable');
     }
   }
 
-  /// Login user to OneSignal (set External User ID)
-  static Future<void> loginUser(String userId) async {
-    if (!_isInitialized || !AppConstants.isOneSignalConfigured) return;
-    try {
-      await OneSignal.login(userId);
-      debugPrint('[OneSignal] User login: $userId');
-    } catch (e) {
-      debugPrint('[OneSignal] Error login user: $e');
-    }
-  }
-
-  /// Logout user from OneSignal
   static Future<void> logoutUser() async {
-    if (!_isInitialized || !AppConstants.isOneSignalConfigured) return;
+    _identifiedUserId = null;
+    if (!_isInitialized) return;
     try {
+      await OneSignal.User.pushSubscription.optOut();
       await OneSignal.logout();
-      debugPrint('[OneSignal] User logout');
-    } catch (e) {
-      debugPrint('[OneSignal] Error logout user: $e');
+    } catch (_) {
+      SafeLog.debug('push.logout_failed');
     }
   }
 
-  /// Set user tags for segmentation/targeting
-  static Future<void> setTags(Map<String, String> tags) async {
-    if (!_isInitialized || !AppConstants.isOneSignalConfigured) return;
-    try {
-      OneSignal.User.addTags(tags);
-      debugPrint('[OneSignal] Tags berhasil diset: $tags');
-    } catch (e) {
-      debugPrint('[OneSignal] Error set tags: $e');
-    }
-  }
-
-  /// Set user role tag (guru / admin / wali_murid)
-  static Future<void> setUserRole(String role) async {
-    await setTags({'role': role});
-  }
-
-  /// Register current device as a parent of a specific student
-  static Future<void> registerParentForStudent({
-    required int siswaId,
-    String? namaSiswa,
-  }) async {
-    await setTags({
-      'role': 'wali_murid',
-      'siswa_id': siswaId.toString(),
-      if (namaSiswa != null) 'nama_siswa': namaSiswa,
-    });
-    debugPrint('[OneSignal] Device terdaftar sebagai wali murid siswa ID: $siswaId');
-  }
-
-  // ===========================================================================
-  // PUSH NOTIFICATION SENDING (REST API)
-  // ===========================================================================
-
-  /// Send attendance notification to parents when student arrives at school
-  static Future<bool> sendAbsensiMasukNotification({
-    required int siswaId,
-    String? nis,
-    required String namaSiswa,
-    required String jamMasuk,
-    bool isLate = false,
-    int? lateMinutes,
-  }) async {
-    final statusText = isLate
-        ? 'Terlambat ${lateMinutes ?? 0} menit'
-        : 'Tepat Waktu';
-
-    // Heading selalu sama: status detail sudah ada di body content
-    const heading = '✅ Presensi Masuk';
-
-    final content = isLate
-        ? 'Ananda $namaSiswa telah tiba di sekolah pukul $jamMasuk WIB (Status: Terlambat $lateMinutes mnt).'
-        : 'Alhamdulillah, Ananda $namaSiswa telah tiba di sekolah pukul $jamMasuk WIB (Status: $statusText).';
-
-    return await sendNotificationToStudentParents(
-      siswaId: siswaId,
-      nis: nis,
-      heading: heading,
-      content: content,
-      data: {
-        'type': 'absensi',
-        'action': 'masuk',
-        'siswa_id': siswaId,
-        if (nis != null) 'nis': nis,
-        'nama_siswa': namaSiswa,
-        'jam': jamMasuk,
-        'is_late': isLate,
-        'late_minutes': lateMinutes,
-      },
-    );
-  }
-
-  /// Send attendance notification to parents when student checks out (leaves school)
-  static Future<bool> sendAbsensiPulangNotification({
-    required int siswaId,
-    String? nis,
-    required String namaSiswa,
-    required String jamPulang,
-  }) async {
-    final heading = '👋 Presensi Pulang: $namaSiswa';
-    final content =
-        'Ananda $namaSiswa telah melakukan absensi pulang pukul $jamPulang WIB. Semoga selamat sampai di rumah!';
-
-    return await sendNotificationToStudentParents(
-      siswaId: siswaId,
-      nis: nis,
-      heading: heading,
-      content: content,
-      data: {
-        'type': 'absensi',
-        'action': 'pulang',
-        'siswa_id': siswaId,
-        if (nis != null) 'nis': nis,
-        'nama_siswa': namaSiswa,
-        'jam': jamPulang,
-      },
-    );
-  }
-
-  /// Send notification to parents when student attendance status is manually updated (Sakit, Izin, Alfa)
   static Future<bool> sendAbsensiStatusUpdateNotification({
     required int siswaId,
     String? nis,
@@ -246,185 +107,52 @@ class OneSignalService {
     required String tanggal,
     String? keterangan,
   }) async {
-    final heading = '📋 Update Presensi: $namaSiswa';
-    final ketText = keterangan != null && keterangan.isNotEmpty ? ' ($keterangan)' : '';
-    final content =
-        'Status presensi ananda $namaSiswa untuk tanggal $tanggal telah tercatat sebagai: ${status.toUpperCase()}$ketText.';
-
-    return await sendNotificationToStudentParents(
-      siswaId: siswaId,
-      nis: nis,
-      heading: heading,
-      content: content,
-      data: {
-        'type': 'absensi_status_update',
-        'siswa_id': siswaId,
-        if (nis != null) 'nis': nis,
-        'nama_siswa': namaSiswa,
-        'status': status,
-        'tanggal': tanggal,
-      },
-    );
-  }
-
-  /// Send push notification targeting parents of a specific student
-  /// Combines External User ID targets (siswa_{id}, {id}, {nis}) with Tag filter fallback
-  static Future<bool> sendNotificationToStudentParents({
-    required int siswaId,
-    String? nis,
-    required String heading,
-    required String content,
-    Map<String, dynamic>? data,
-  }) async {
-    // Primary: External ID tunggal sesuai loginUser('$siswaId')
-    // Hanya pakai SATU ID agar tidak dobel ke device yang punya sesi lama
-    final primaryId = '$siswaId';
-
-    // Fallback: tag filter jika external ID belum terdaftar di OneSignal
-    final filters = <Map<String, dynamic>>[
-      {
-        'field': 'tag',
-        'key': 'siswa_id',
-        'relation': '=',
-        'value': siswaId.toString(),
-      },
-    ];
-
-    // Coba external ID dulu (lebih cepat & pasti tidak dobel)
-    final externalSuccess = await sendPushNotification(
-      targetExternalUserIds: [primaryId],
-      heading: heading,
-      content: content,
-      data: data,
-    );
-
-    // Fallback ke tag filter hanya jika 0 penerima
-    if (!externalSuccess) {
-      debugPrint('[OneSignal] External ID 0 penerima, fallback ke tag filter...');
-      return await sendPushNotification(
-        filters: filters,
-        heading: heading,
-        content: content,
-        data: data,
-      );
-    }
-
-    return true;
-  }
-
-  /// Core method to send push notification.
-  /// Prioritizes secure Supabase Edge Function (`send-push`), with local dev REST fallback.
-  static Future<bool> sendPushNotification({
-    List<Map<String, dynamic>>? filters,
-    List<String>? targetExternalUserIds,
-    List<String>? targetSegments,
-    required String heading,
-    required String content,
-    Map<String, dynamic>? data,
-  }) async {
-    final appId = AppConstants.onesignalAppId;
-
-    if (appId.isEmpty) {
-      debugPrint('[OneSignal Push] Batal kirim: ONESIGNAL_APP_ID kosong');
-      return false;
-    }
-
-    final payload = <String, dynamic>{
-      'app_id': appId,
-      'headings': {
-        'en': heading,
-        'id': heading,
-      },
-      'contents': {
-        'en': content,
-        'id': content,
-      },
-      'target_channel': 'push',
-      if (data != null) 'data': data,
-      'android_accent_color': 'FF2F6CB0',
-    };
-
-    if (targetExternalUserIds != null && targetExternalUserIds.isNotEmpty) {
-      // Use v1 API field only – include_aliases is v2-only and causes silent failures
-      payload['include_external_user_ids'] = targetExternalUserIds;
-      payload['channel_for_external_user_ids'] = 'push';
-    } else if (filters != null && filters.isNotEmpty) {
-      payload['filters'] = filters;
-    } else if (targetSegments != null && targetSegments.isNotEmpty) {
-      payload['included_segments'] = targetSegments;
-    } else {
-      payload['included_segments'] = ['Total Subscriptions'];
-    }
-
-    // 1. Primary: Try secure Supabase Edge Function (REST Key stays on backend)
+    if (!supabaseService.isAuthenticated) return false;
     try {
-      final functionRes = await supabaseService.client.functions.invoke(
-        'send-push',
-        body: payload,
-      );
-      if (functionRes.status == 200) {
-        debugPrint('[OneSignal Push] Berhasil dikirim via Supabase Edge Function.');
-        return true;
-      }
+      final record = await supabaseService.client
+          .from(DbTables.absensi)
+          .select('id')
+          .eq('siswa_id', siswaId)
+          .eq('tanggal', tanggal)
+          .maybeSingle();
+      final id = record?['id'];
+      if (id is! int) return false;
+      return sendEvent(eventType: 'attendance', recordId: id);
     } catch (_) {
-      // Edge function may not be deployed yet; fallback to direct REST if key is present
-    }
-
-    // 2. Fallback: Direct OneSignal REST API (Development / Testing only)
-    final restApiKey = AppConstants.onesignalRestApiKey;
-    if (restApiKey.isEmpty) {
-      debugPrint(
-        '[OneSignal Push] Catatan: REST API Key tidak disimpan di aplikasi (Aman). '
-        'Gunakan Supabase Edge Function atau Webhook backend untuk memicu notifikasi push produksi.',
-      );
-      return false;
-    }
-
-    try {
-      final url = Uri.parse('https://onesignal.com/api/v1/notifications');
-      final authHeader = restApiKey.startsWith('Key ') || restApiKey.startsWith('Basic ')
-          ? restApiKey
-          : (restApiKey.startsWith('os_v2_') ? 'Key $restApiKey' : 'Basic $restApiKey');
-
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': authHeader,
-        },
-        body: jsonEncode(payload),
-      );
-
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final recipients = (body['recipients'] as num?)?.toInt() ?? 0;
-      final errors = body['errors'];
-
-      if ((response.statusCode == 200 || response.statusCode == 201) && errors == null) {
-        debugPrint('[OneSignal Push] Notifikasi berhasil dikirim ($recipients penerima)');
-        return true;
-      } else {
-        debugPrint(
-          '[OneSignal Push] Response OneSignal (${response.statusCode}): ${body['errors'] ?? body['id'] ?? response.body}',
-        );
-        return false;
-      }
-    } catch (e) {
-      debugPrint('[OneSignal Push] Error saat mengirim notifikasi: $e');
+      SafeLog.debug('push.attendance_event_unavailable');
       return false;
     }
   }
 
-  // ===========================================================================
-  // SUBSCRIPTION & STATUS GETTERS
-  // ===========================================================================
+  static Future<bool> sendSuratDecisionNotification({required int suratId}) =>
+      sendEvent(eventType: 'letter_decision', recordId: suratId);
 
-  /// Check if user has opted into push notifications
+  static Future<bool> sendEvent({
+    required String eventType,
+    required int recordId,
+  }) async {
+    if (!supabaseService.isAuthenticated ||
+        recordId <= 0 ||
+        !{'attendance', 'letter_decision'}.contains(eventType)) {
+      return false;
+    }
+    try {
+      final result = await supabaseService.client.functions.invoke(
+        'send-push',
+        body: {'event_type': eventType, 'record_id': recordId},
+      );
+      final body = result.data;
+      return result.status == 200 && body is Map && body['accepted'] == true;
+    } catch (_) {
+      SafeLog.debug('push.event_delivery_failed');
+      return false;
+    }
+  }
+
   static bool get isSubscribed =>
-      OneSignal.User.pushSubscription.optedIn ?? false;
-
-  /// Get OneSignal Subscription ID / Player ID
-  static String? get subscriptionId => OneSignal.User.pushSubscription.id;
-
-  /// Get push notification token
-  static String? get pushToken => OneSignal.User.pushSubscription.token;
+      _isInitialized && (OneSignal.User.pushSubscription.optedIn ?? false);
+  static String? get subscriptionId =>
+      _isInitialized ? OneSignal.User.pushSubscription.id : null;
+  static String? get pushToken =>
+      _isInitialized ? OneSignal.User.pushSubscription.token : null;
 }

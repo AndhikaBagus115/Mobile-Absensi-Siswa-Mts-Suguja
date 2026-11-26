@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import '../../core/safe_log.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/constants.dart';
@@ -50,7 +50,8 @@ class SiswaRepository {
 
   /// Get students by class name with today's attendance (via RPC)
   Future<List<SiswaWithAbsensi>> getStudentsByClassToday(
-      String namaKelas) async {
+    String namaKelas,
+  ) async {
     try {
       final response = await _client.rpc(
         RpcFunctions.getSiswaKelasHariIni,
@@ -58,8 +59,9 @@ class SiswaRepository {
       );
 
       return (response as List)
-          .map((item) =>
-              SiswaWithAbsensi.fromJson(item as Map<String, dynamic>))
+          .map(
+            (item) => SiswaWithAbsensi.fromJson(item as Map<String, dynamic>),
+          )
           .toList();
     } on PostgrestException catch (e) {
       throw RepositoryException(
@@ -70,7 +72,8 @@ class SiswaRepository {
   }
 
   // In-memory cache for fast QR scan student lookups
-  final Map<String, ({int id, String nama, int? kelasId})> _scanStudentCache = {};
+  final Map<String, ({int id, String nama, int? kelasId})> _scanStudentCache =
+      {};
 
   /// Get student for scan with minimal data needed (cached for ultra-fast response)
   Future<({int id, String nama, int? kelasId})?> findForScan(String nis) async {
@@ -82,7 +85,9 @@ class SiswaRepository {
     try {
       final response = await _client
           .from(DbTables.siswa)
-          .select('${SiswaColumns.id}, ${SiswaColumns.nama}, ${SiswaColumns.kelasId}')
+          .select(
+            '${SiswaColumns.id}, ${SiswaColumns.nama}, ${SiswaColumns.kelasId}',
+          )
           .eq(SiswaColumns.nis, cleanNis)
           .maybeSingle();
 
@@ -96,8 +101,8 @@ class SiswaRepository {
 
       _scanStudentCache[cleanNis] = studentData;
       return studentData;
-    } on PostgrestException catch (e) {
-      debugPrint('Error finding student for scan: ${e.message}');
+    } on PostgrestException {
+      SafeLog.debug('siswa_repository.error_finding_student_for_scan');
       return null;
     }
   }

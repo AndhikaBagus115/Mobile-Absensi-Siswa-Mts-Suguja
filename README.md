@@ -79,7 +79,7 @@ Aplikasi ini terhubung langsung secara *real-time* dengan database Supabase Clou
 ---
 
 ### 👨‍👩‍👧 3. Portal Orang Tua / Wali Murid (`/features/wali`)
-* **Login Cepat via NIS**: Akses aman dan instan menggunakan NIS siswa tanpa proses registrasi rumit, dengan sesi lokal terenkripsi (*SharedPreferences*).
+* **Login OTP Orangtua**: Masuk melalui email atau nomor HP yang didaftarkan sekolah. Anak ditautkan oleh admin di server; sesi dan cache privat memakai keystore/keychain.
 * **Dukungan Multi-Anak (*Child Switcher Bar*)**: Memungkinkan orang tua yang memiliki lebih dari satu anak di sekolah untuk berpindah profil anak dengan satu ketukan, serta dialog *Tambah Anak*.
 * **Kartu Presensi Live (*Live Attendance Card*)**:
   * Status kehadiran harian terkini (*Hadir, Terlambat, Pulang, Sakit, Izin, Alfa*).
@@ -100,10 +100,10 @@ Aplikasi ini terhubung langsung secara *real-time* dengan database Supabase Clou
 ---
 
 ### 🔔 4. Sistem Notifikasi OneSignal & Background Service (`/data/services`)
-* **Push Notification Presensi**: Notifikasi instan langsung ke HP wali murid saat siswa berhasil di-scan masuk atau pulang di gerbang sekolah.
-* **Push Notification Status Surat**: Notifikasi otomatis saat surat perizinan disetujui atau ditolak oleh wali kelas.
-* **Segmentasi & Tagging Berbasis Peran**: Sinkronisasi tag OneSignal otomatis (`role: guru`, `nis: [list_nis]`, `kelas: [list_kelas]`).
-* **Supabase Edge Function & REST API Fallback**: Menjamin notifikasi tetap terkirim secara andal melalui Edge Function backend.
+* **Kejadian Presensi dan Keputusan Surat**: Klien mengirim jenis kejadian dan ID rekaman tersimpan ke Edge Function; server memeriksa pengirim, kelas, isi, dan penerimanya.
+* **Identitas Orangtua**: Identitas OneSignal acak per akun dewasa dengan relasi anak di server. NIS dan tag SDK tidak menjadi dasar otorisasi.
+* **Antrean dan Idempotensi**: Migrasi menyiapkan antrean kejadian, batas request, dan pencegahan pengiriman ulang. Secret pengiriman hanya berada di backend.
+* **Penerapan Layanan**: Migrasi, deploy fungsi, key baru, dan uji penerimaan diperlukan sebelum integrasi dipakai. Trigger antrean tidak mengirim sendiri; jalur scanner/webhook perlu diverifikasi sesuai [panduan tahap 2](docs/SECURITY_STAGE_2.md).
 
 ---
 
@@ -113,11 +113,12 @@ Aplikasi ini terhubung langsung secara *real-time* dengan database Supabase Clou
 | :--- | :--- | :--- |
 | **Core Framework** | [Flutter 3.x](https://flutter.dev/) & Dart 3.x | Framework UI Multiplatform (Android & iOS) |
 | **Backend & Database** | [`supabase_flutter`](https://pub.dev/packages/supabase_flutter) | PostgreSQL Database, Auth, Realtime, & Storage |
-| **Push Notification** | [`onesignal_flutter`](https://pub.dev/packages/onesignal_flutter) | Push Notification Service & Audience Tagging |
+| **Push Notification** | [`onesignal_flutter`](https://pub.dev/packages/onesignal_flutter) | Subscription dengan identitas akun dari server |
 | **State Management** | [`provider`](https://pub.dev/packages/provider) | Manajemen status aplikasi yang terstruktur & efisien |
 | **QR/Barcode Scanner** | [`mobile_scanner`](https://pub.dev/packages/mobile_scanner) | Engine pemindai kamera responsif dan hemat daya |
 | **Media & Kompresi** | [`image_picker`](https://pub.dev/packages/image_picker), [`flutter_image_compress`](https://pub.dev/packages/flutter_image_compress) | Pengambilan foto & kompresi cerdas sebelum upload |
-| **Penyimpanan Lokal** | [`shared_preferences`](https://pub.dev/packages/shared_preferences), [`path_provider`](https://pub.dev/packages/path_provider) | Session caching profil anak & offline notification read status |
+| **Penyimpanan Privat** | [`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage) | Token dan cache privat per akun, dibatasi retensi dan dibersihkan saat logout |
+| **Preferensi & File Lokal** | [`shared_preferences`](https://pub.dev/packages/shared_preferences), [`path_provider`](https://pub.dev/packages/path_provider) | Preferensi umum dan lokasi file sementara |
 | **UI & Animasi** | [`flutter_animate`](https://pub.dev/packages/flutter_animate), `Material 3`, `Custom Painters` | Transisi halus, grafik custom, laser scanner, & micro-interactions |
 | **Format & Lokalisasi**| [`intl`](https://pub.dev/packages/intl), `flutter_localizations` | Format tanggal & jam Bahasa Indonesia (`id_ID`) |
 | **Optimasi Build** | R8 / ProGuard Code & Resource Shrinking | Ukuran APK yang ringkas, aman, dan performa tinggi |
@@ -155,12 +156,14 @@ lib/
 │   │   ├── auth_repository.dart        # Autentikasi guru, session check, & update profil
 │   │   ├── siswa_repository.dart       # Query daftar siswa per kelas
 │   │   ├── surat_repository.dart       # Query pengajuan, histori, & persetujuan surat
-│   │   └── wali_repository.dart        # Query login NIS, data absensi anak, & pengumuman
+│   │   └── wali_repository.dart        # Relasi anak terotorisasi, absensi, & pengumuman
 │   │
 │   └── services/                       # Integrasi service eksternal & backend
 │       ├── onesignal_service.dart      # Inisialisasi, listener, & pengiriman push notification
 │       ├── supabase_service.dart       # Singleton Supabase Client instance
-│       └── wali_storage_service.dart   # Manajemen cache lokal SharedPreferences sesi wali
+│       ├── secure_storage_service.dart # Token dan cache terenkripsi per akun
+│       ├── private_document_service.dart # Path surat dan URL sementara terotorisasi
+│       └── wali_storage_service.dart   # Cache profil/absensi/inbox pada secure storage
 │
 ├── features/                           # Modul-modul fitur aplikasi (Feature-First)
 │   ├── auth/                           # Fitur Autentikasi & Dashboard Utama Guru
@@ -193,7 +196,7 @@ lib/
 │       ├── wali_dashboard_screen.dart  # Beranda utama wali murid, multi-anak, & live status
 │       ├── wali_notifications_screen.dart # Kotak masuk pengumuman sekolah & detail dialog
 │       └── widgets/                    # Komponen modular khusus portal wali
-│           ├── add_child_dialog.dart   # Modal tambah anak dengan validasi NIS
+│           ├── add_child_dialog.dart   # Pemilihan anak yang sudah ditautkan admin
 │           ├── attendance_line_chart.dart # Custom widget grafik kehadiran bulanan
 │           ├── child_switcher_bar.dart # Bar pemilihan profil anak aktif
 │           ├── live_attendance_card.dart # Kartu status kehadiran hari ini real-time
@@ -218,13 +221,13 @@ git clone https://github.com/AndhikaBagus115/Mobile-Absensi-Siswa-Mts-Suguja.git
 cd Mobile-Absensi-Siswa-Mts-Suguja
 ```
 
-### 3. Konfigurasi File Environment (`.env`)
+### 3. Konfigurasi Publik untuk Build
 Salin file template `.env.example` menjadi `.env` pada root direktori:
 ```bash
 cp .env.example .env
 ```
 
-Buka file `.env` dan lengkapi konfigurasi Supabase dan OneSignal Anda:
+Buka `.env` dan isi hanya konfigurasi publik berikut:
 ```env
 # Supabase Configuration
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -234,11 +237,15 @@ APP_ENVIRONMENT=development
 # OneSignal Push Notification Configuration
 ONESIGNAL_APP_ID=your-onesignal-app-id-uuid
 
-# (Opsional untuk development lokal jika tidak menggunakan Supabase Edge Function)
-ONESIGNAL_REST_API_KEY=your-onesignal-rest-api-key
 ```
 
-> ⚠️ **PENTING**: Jangan pernah melakukan commit file `.env` yang berisi kredensial asli ke repositori publik!
+Kemudian buat file konfigurasi yang diizinkan masuk ke build:
+
+```bash
+dart tool/configure_public.dart
+```
+
+Generator menulis `config/public.json` dengan allowlist empat nilai publik di atas. File `.env` tidak dibundel ke APK. Alternatifnya, salin `config/public.example.json` menjadi `config/public.json`. Kedua file konfigurasi lokal diabaikan Git. REST key OneSignal dan service-role key hanya disimpan di backend, sesuai [panduan penerapan tahap 2](docs/SECURITY_STAGE_2.md).
 
 ### 4. Install Dependensi
 Jalankan perintah berikut untuk mengunduh semua pustaka yang dibutuhkan:
@@ -256,12 +263,12 @@ dart run flutter_launcher_icons
 
 #### Mode Debug:
 ```bash
-flutter run
+flutter run --dart-define-from-file=config/public.json
 ```
 
 #### Build APK Release (Dengan optimasi ProGuard / R8):
 ```bash
-flutter build apk --release
+flutter build apk --release --dart-define-from-file=config/public.json
 ```
 File output APK siap pasang akan berada di: `build/app/outputs/flutter-apk/app-release.apk`.
 
@@ -272,12 +279,12 @@ Setelah `flutter pub get`, jalankan dari root proyek:
 ```bash
 flutter analyze --no-pub
 flutter test --no-pub
-flutter build apk --debug --no-pub
+flutter build apk --debug --no-pub --dart-define-from-file=config/public.json
 ```
 
 APK debug berada di `build/app/outputs/flutter-apk/app-debug.apk`.
 
-Test di `test/widget_test.dart` membuka `MyApp` dengan konfigurasi Supabase sintetis, HTTP mock, penyimpanan dalam memori, dan mock channel OneSignal. Test mencakup login tanpa sesi, validasi form guru/wali, kegagalan login, login admin, pengalihan sesi guru aktif, profil yang belum tersedia, serta dashboard anak aktif. Tidak diperlukan akun sekolah atau koneksi backend untuk skenario ini. Ini pengujian widget dan navigasi pada viewport 800 × 1200, bukan uji kamera, push Android, atau otorisasi server.
+Test pada `test/` membuka aplikasi dengan Supabase sintetis, HTTP mock, dan penyimpanan dalam memori. Cakupannya mencakup OTP, penolakan sesi/cache palsu, relasi anak dari server, logout, lampiran privat, dan kontrak push. Tidak diperlukan akun sekolah atau koneksi backend. Test RLS dan Edge Function tersedia pada `supabase/tests/`; petunjuknya ada di [panduan keamanan tahap 2](docs/SECURITY_STAGE_2.md). Hasil lokal belum menggantikan uji API setelah migrasi diterapkan.
 
 `android/gradle.properties` menonaktifkan Jetifier karena dependency saat ini sudah AndroidX. Ini menghindari transformasi ulang library Flutter yang sebelumnya kehabisan heap Java; batas heap dan jumlah worker tetap dibatasi untuk mesin dengan RAM terbatas. Evaluasi kembali kebutuhan Jetifier jika menambahkan dependency Android lama.
 
@@ -289,7 +296,7 @@ Test di `test/widget_test.dart` membuka `MyApp` dengan konfigurasi Supabase sint
 | :--- | :--- | :--- |
 | **Guru / Wali Kelas** | Email & Password (Tab Guru) | Dashboard Guru, Rekap Kelas, Persetujuan Surat, Profil |
 | **Admin Scanner** | Email & Password Akun Admin | Modul Continuous QR Code Scanner Gerbang |
-| **Wali Murid** | NIS Siswa (Tab Wali Murid) | Dashboard Wali, Multi-Anak, Live Attendance, Form Surat, Notifikasi |
+| **Wali Murid** | OTP ke email/nomor HP terdaftar (Tab Wali Murid) | Dashboard Wali, Anak Tertaut, Live Attendance, Form Surat, Notifikasi |
 
 ---
 
