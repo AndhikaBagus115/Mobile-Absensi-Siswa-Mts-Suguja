@@ -1,7 +1,7 @@
+import '../../core/safe_log.dart';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:onesignal_flutter/onesignal_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'secure_storage_service.dart';
+import 'supabase_service.dart';
 
 import '../models/wali_murid_models.dart';
 import 'onesignal_service.dart';
@@ -15,22 +15,31 @@ class WaliStorageService {
   static const String _keyChildren = 'wali_saved_children';
   static const String _keyActiveChildId = 'wali_active_child_id';
 
-  /// Check if parent has any active linked child session
-  Future<bool> hasActiveSession() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final childrenJson = prefs.getStringList(_keyChildren);
-      return childrenJson != null && childrenJson.isNotEmpty;
-    } catch (e) {
-      debugPrint('[WaliStorage] Error checking active session: $e');
-      return false;
+  /// Replace a cache only after the server has returned the owned children.
+  Future<void> replaceSavedChildren(List<ChildProfile> children) async {
+    final prefs = await SecureUserPreferences.getInstance();
+    final ids = children.map((child) => child.id).toSet();
+    for (final key in prefs.getKeys()) {
+      final match = RegExp(
+        r'^cache_(?:today_att|month_stats)_([0-9]+)',
+      ).firstMatch(key);
+      if (match != null && !ids.contains(int.tryParse(match.group(1)!))) {
+        await prefs.remove(key);
+      }
+    }
+    await prefs.setStringList(
+      _keyChildren,
+      children.map((child) => jsonEncode(child.toJson())).toList(),
+    );
+    if (children.isNotEmpty && !ids.contains(prefs.getInt(_keyActiveChildId))) {
+      await prefs.setInt(_keyActiveChildId, children.first.id);
     }
   }
 
   /// Get all saved linked children
   Future<List<ChildProfile>> getSavedChildren() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final rawList = prefs.getStringList(_keyChildren);
       if (rawList == null || rawList.isEmpty) return [];
 
@@ -39,7 +48,9 @@ class WaliStorageService {
         return ChildProfile.fromJson(map);
       }).toList();
     } catch (e) {
-      debugPrint('[WaliStorage] Error getting saved children: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_getting_saved_children',
+      );
       return [];
     }
   }
@@ -47,7 +58,7 @@ class WaliStorageService {
   /// Save or update a child profile, and set as active if desired
   Future<void> saveChild(ChildProfile child, {bool makeActive = true}) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final currentList = await getSavedChildren();
 
       // Check if child is already in the list, update it or append
@@ -59,7 +70,9 @@ class WaliStorageService {
       }
 
       // Save back to SharedPreferences
-      final encodedList = currentList.map((c) => jsonEncode(c.toJson())).toList();
+      final encodedList = currentList
+          .map((c) => jsonEncode(c.toJson()))
+          .toList();
       await prefs.setStringList(_keyChildren, encodedList);
 
       if (makeActive || currentList.length == 1) {
@@ -68,9 +81,9 @@ class WaliStorageService {
 
       // Synchronize OneSignal Tags for all children
       await syncOneSignalTags(currentList);
-      debugPrint('[WaliStorage] Berhasil menyimpan anak: ${child.nama} (ID: ${child.id})');
+      SafeLog.debug('wali_storage_service.walistorage_berhasil_menyimpan_anak');
     } catch (e) {
-      debugPrint('[WaliStorage] Error saving child: $e');
+      SafeLog.debug('wali_storage_service.walistorage_error_saving_child');
     }
   }
 
@@ -80,7 +93,7 @@ class WaliStorageService {
       final children = await getSavedChildren();
       if (children.isEmpty) return null;
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final activeId = prefs.getInt(_keyActiveChildId);
 
       if (activeId != null) {
@@ -93,7 +106,9 @@ class WaliStorageService {
 
       return children.first;
     } catch (e) {
-      debugPrint('[WaliStorage] Error getting active child: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_getting_active_child',
+      );
       return null;
     }
   }
@@ -101,22 +116,28 @@ class WaliStorageService {
   /// Set the active child by ID
   Future<void> setActiveChildId(int childId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       await prefs.setInt(_keyActiveChildId, childId);
-      debugPrint('[WaliStorage] Active child ID diset ke: $childId');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_active_child_id_diset_ke',
+      );
     } catch (e) {
-      debugPrint('[WaliStorage] Error setting active child ID: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_setting_active_child_id',
+      );
     }
   }
 
   /// Remove a linked child
   Future<void> removeChild(int childId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final currentList = await getSavedChildren();
       currentList.removeWhere((c) => c.id == childId);
 
-      final encodedList = currentList.map((c) => jsonEncode(c.toJson())).toList();
+      final encodedList = currentList
+          .map((c) => jsonEncode(c.toJson()))
+          .toList();
       await prefs.setStringList(_keyChildren, encodedList);
 
       final activeId = prefs.getInt(_keyActiveChildId);
@@ -130,35 +151,17 @@ class WaliStorageService {
 
       // Re-sync OneSignal Tags
       await syncOneSignalTags(currentList);
-      debugPrint('[WaliStorage] Anak ID $childId berhasil dihapus');
+      SafeLog.debug('wali_storage_service.walistorage_anak_id');
     } catch (e) {
-      debugPrint('[WaliStorage] Error removing child: $e');
+      SafeLog.debug('wali_storage_service.walistorage_error_removing_child');
     }
   }
 
-  /// Clear all parent data (Logout)
+  /// Clear encrypted private data and disconnect the push identity.
   Future<void> clearAll() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyChildren);
-      await prefs.remove(_keyActiveChildId);
-      await prefs.remove(_keyReadNotifications);
-      await prefs.remove(_keyInAppNotifications);
-
-      // Clean all cached attendance snapshots
-      final keys = prefs.getKeys();
-      for (final key in keys) {
-        if (key.startsWith('cache_today_att_') || key.startsWith('cache_month_stats_')) {
-          await prefs.remove(key);
-        }
-      }
-
-      // Logout OneSignal
-      await OneSignalService.logoutUser();
-      debugPrint('[WaliStorage] Sesi wali murid berhasil dibersihkan secara total');
-    } catch (e) {
-      debugPrint('[WaliStorage] Error clearing session: $e');
-    }
+    await SecureUserPreferences.clearPrivateCache();
+    await eraseLegacyPrivatePreferences();
+    await OneSignalService.logoutUser();
   }
 
   static const String _keyReadNotifications = 'wali_read_notification_ids';
@@ -167,7 +170,7 @@ class WaliStorageService {
   /// Save an incoming in-app notification (e.g. from OneSignal push)
   Future<void> saveInAppNotification(WaliNotificationItem item) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final currentList = await getLocalInAppNotifications();
       final existingIndex = currentList.indexWhere((n) => n.id == item.id);
       if (existingIndex >= 0) {
@@ -180,16 +183,20 @@ class WaliStorageService {
       }
       final encoded = currentList.map((n) => jsonEncode(n.toJson())).toList();
       await prefs.setStringList(_keyInAppNotifications, encoded);
-      debugPrint('[WaliStorage] In-app notifikasi disimpan: ${item.title}');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_in_app_notifikasi_disimpan',
+      );
     } catch (e) {
-      debugPrint('[WaliStorage] Error saving in-app notification: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_saving_in_app_notification',
+      );
     }
   }
 
   /// Get local in-app notifications
   Future<List<WaliNotificationItem>> getLocalInAppNotifications() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final rawList = prefs.getStringList(_keyInAppNotifications);
       if (rawList == null || rawList.isEmpty) return [];
       return rawList.map((str) {
@@ -197,7 +204,9 @@ class WaliStorageService {
         return WaliNotificationItem.fromJson(map);
       }).toList();
     } catch (e) {
-      debugPrint('[WaliStorage] Error getting local in-app notifications: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_getting_local_in_app_notifications',
+      );
       return [];
     }
   }
@@ -205,17 +214,19 @@ class WaliStorageService {
   /// Clear all local in-app notifications
   Future<void> clearInAppNotifications() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       await prefs.remove(_keyInAppNotifications);
     } catch (e) {
-      debugPrint('[WaliStorage] Error clearing in-app notifications: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_clearing_in_app_notifications',
+      );
     }
   }
 
   /// Get list of read notification IDs
   Future<Set<String>> getReadNotificationIds() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final list = prefs.getStringList(_keyReadNotifications) ?? [];
       return list.toSet();
     } catch (e) {
@@ -226,63 +237,38 @@ class WaliStorageService {
   /// Mark single notification as read
   Future<void> markNotificationAsRead(String notifId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final current =
-          (prefs.getStringList(_keyReadNotifications) ?? []).toSet();
+      final prefs = await SecureUserPreferences.getInstance();
+      final current = (prefs.getStringList(_keyReadNotifications) ?? [])
+          .toSet();
       current.add(notifId);
       await prefs.setStringList(_keyReadNotifications, current.toList());
     } catch (e) {
-      debugPrint('[WaliStorage] Error marking notif read: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_marking_notif_read',
+      );
     }
   }
 
   /// Mark multiple notifications as read
   Future<void> markAllNotificationsAsRead(Iterable<String> notifIds) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final current =
-          (prefs.getStringList(_keyReadNotifications) ?? []).toSet();
+      final prefs = await SecureUserPreferences.getInstance();
+      final current = (prefs.getStringList(_keyReadNotifications) ?? [])
+          .toSet();
       current.addAll(notifIds);
       await prefs.setStringList(_keyReadNotifications, current.toList());
     } catch (e) {
-      debugPrint('[WaliStorage] Error marking all notifs read: $e');
+      SafeLog.debug(
+        'wali_storage_service.walistorage_error_marking_all_notifs_read',
+      );
     }
   }
 
-  /// Sync OneSignal Tags for all linked children so push notifications arrive
+  /// Push identity belongs to the verified adult account, never to a child/NIS.
   Future<void> syncOneSignalTags(List<ChildProfile> children) async {
-    try {
-      if (children.isEmpty) {
-        await OneSignalService.logoutUser();
-        return;
-      }
-
-      final primaryChild = children.first;
-      // Login with primary student ID so Web Admin and Mobile aliases match directly
-      await OneSignalService.loginUser('${primaryChild.id}');
-
-      try {
-        OneSignal.User.addAlias('siswa_id', '${primaryChild.id}');
-        OneSignal.User.addAlias('siswa_tag', 'siswa_${primaryChild.id}');
-        if (primaryChild.nis.isNotEmpty) {
-          OneSignal.User.addAlias('nis', primaryChild.nis);
-          OneSignal.User.addAlias('nis_tag', 'nis_${primaryChild.nis}');
-        }
-      } catch (e) {
-        debugPrint('[WaliStorage] Info alias: $e');
-      }
-
-      // Only send maximum 2 essential tags to stay strictly within OneSignal's free tier tag limits (max 3)
-      final tags = <String, String>{
-        'role': 'wali_murid',
-        'siswa_id': '${primaryChild.id}',
-      };
-
-      await OneSignalService.setTags(tags);
-      debugPrint('[WaliStorage] OneSignal Tags synced for child ${primaryChild.nama} (ID: ${primaryChild.id}): $tags');
-    } catch (e) {
-      debugPrint('[WaliStorage] Error syncing OneSignal tags: $e');
-    }
+    final userId = supabaseService.currentUserId;
+    if (userId == null || children.isEmpty) return;
+    await OneSignalService.loginUser(userId);
   }
 
   // ===========================================================================
@@ -295,15 +281,18 @@ class WaliStorageService {
   /// Cache today's attendance data for instant offline view
   Future<void> cacheTodayAttendance(int childId, TodayAttendance data) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_prefixTodayAttendance$childId', jsonEncode(data.toJson()));
+      final prefs = await SecureUserPreferences.getInstance();
+      await prefs.setString(
+        '$_prefixTodayAttendance$childId',
+        jsonEncode(data.toJson()),
+      );
     } catch (_) {}
   }
 
   /// Get cached today's attendance data
   Future<TodayAttendance?> getCachedTodayAttendance(int childId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await SecureUserPreferences.getInstance();
       final str = prefs.getString('$_prefixTodayAttendance$childId');
       if (str == null || str.isEmpty) return null;
       final map = jsonDecode(str) as Map<String, dynamic>;
@@ -314,18 +303,32 @@ class WaliStorageService {
   }
 
   /// Cache monthly attendance stats for instant offline view
-  Future<void> cacheMonthlyStats(int childId, int month, int year, MonthlyAttendanceStats stats) async {
+  Future<void> cacheMonthlyStats(
+    int childId,
+    int month,
+    int year,
+    MonthlyAttendanceStats stats,
+  ) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_prefixMonthlyStats${childId}_${month}_$year', jsonEncode(stats.toJson()));
+      final prefs = await SecureUserPreferences.getInstance();
+      await prefs.setString(
+        '$_prefixMonthlyStats${childId}_${month}_$year',
+        jsonEncode(stats.toJson()),
+      );
     } catch (_) {}
   }
 
   /// Get cached monthly attendance stats
-  Future<MonthlyAttendanceStats?> getCachedMonthlyStats(int childId, int month, int year) async {
+  Future<MonthlyAttendanceStats?> getCachedMonthlyStats(
+    int childId,
+    int month,
+    int year,
+  ) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final str = prefs.getString('$_prefixMonthlyStats${childId}_${month}_$year');
+      final prefs = await SecureUserPreferences.getInstance();
+      final str = prefs.getString(
+        '$_prefixMonthlyStats${childId}_${month}_$year',
+      );
       if (str == null || str.isEmpty) return null;
       final map = jsonDecode(str) as Map<String, dynamic>;
       return MonthlyAttendanceStats.fromJson(map);

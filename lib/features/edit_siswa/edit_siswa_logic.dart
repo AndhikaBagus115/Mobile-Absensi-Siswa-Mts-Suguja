@@ -1,3 +1,4 @@
+import '../../core/safe_log.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -27,7 +28,7 @@ class EditSiswaLogic extends ChangeNotifier {
       );
       return absensi?.keterangan;
     } catch (e) {
-      debugPrint('Error fetchInitialKeterangan: $e');
+      SafeLog.debug('edit_siswa_logic.error_fetchinitialketerangan');
       return null;
     }
   }
@@ -46,7 +47,7 @@ class EditSiswaLogic extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('Error pick image: $e');
+      SafeLog.debug('edit_siswa_logic.error_pick_image');
     }
   }
 
@@ -116,13 +117,13 @@ class EditSiswaLogic extends ChangeNotifier {
             keterangan: keterangan,
           );
         } catch (e) {
-          debugPrint('Error sending status notification: $e');
+          SafeLog.debug('edit_siswa_logic.error_sending_status_notification');
         }
       }
 
       return true;
     } catch (e) {
-      debugPrint('Error Submit: $e');
+      SafeLog.debug('edit_siswa_logic.error_submit');
       return false;
     } finally {
       isLoading = false;

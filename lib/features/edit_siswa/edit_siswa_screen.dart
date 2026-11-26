@@ -1,3 +1,4 @@
+import '../../core/ui/private_document_image.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -80,8 +81,9 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
   void initState() {
     super.initState();
     selectedStatus = widget.statusAwal?.toLowerCase() ?? 'hadir';
-    _keteranganController =
-        TextEditingController(text: widget.keteranganAwal ?? '');
+    _keteranganController = TextEditingController(
+      text: widget.keteranganAwal ?? '',
+    );
 
     // If keteranganAwal is empty/null, fetch existing attendance in background
     if (widget.keteranganAwal == null || widget.keteranganAwal!.isEmpty) {
@@ -148,26 +150,26 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
 
               // Interactive Status Selector Pills
               Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade200),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.02),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: StatusSelectorPills(
-                  selectedStatus: selectedStatus,
-                  onStatusChanged: (newStatus) {
-                    setState(() => selectedStatus = newStatus);
-                  },
-                ),
-              )
+                    child: StatusSelectorPills(
+                      selectedStatus: selectedStatus,
+                      onStatusChanged: (newStatus) {
+                        setState(() => selectedStatus = newStatus);
+                      },
+                    ),
+                  )
                   .animate()
                   .fadeIn(delay: 150.ms, duration: 400.ms)
                   .slideY(begin: 0.1, end: 0),
@@ -278,7 +280,9 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                         suffixIcon: ValueListenableBuilder<TextEditingValue>(
                           valueListenable: _keteranganController,
                           builder: (context, val, child) {
-                            if (val.text.isEmpty) return const SizedBox.shrink();
+                            if (val.text.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
                             return IconButton(
                               icon: const Icon(
                                 Icons.clear_rounded,
@@ -305,9 +309,7 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                         decoration: BoxDecoration(
                           color: const Color(0xFFFEF3C7),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: const Color(0xFFFDE68A),
-                          ),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -334,10 +336,7 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                     ],
                   ],
                 ),
-              )
-                  .animate()
-                  .fadeIn(delay: 200.ms, duration: 400.ms)
-                  .slideY(begin: 0.1, end: 0),
+              ).animate().fadeIn(delay: 200.ms, duration: 400.ms).slideY(begin: 0.1, end: 0),
 
               const SizedBox(height: 20),
 
@@ -369,7 +368,11 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.attachment_rounded, color: Color(0xFF2563EB), size: 20),
+                          Icon(
+                            Icons.attachment_rounded,
+                            color: Color(0xFF2563EB),
+                            size: 20,
+                          ),
                           SizedBox(width: 8),
                           Text(
                             'Lampiran Surat Dokter / Izin',
@@ -384,14 +387,18 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                       const SizedBox(height: 6),
                       const Text(
                         'Wajib/disarankan melampirkan foto surat dokter atau surat dari orang tua.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
                       ),
                       const SizedBox(height: 16),
 
                       // Preview
                       if (logic.selectedFile != null)
                         _buildFilePreview(logic.selectedFile!)
-                      else if (widget.suratUrl != null && widget.suratUrl!.isNotEmpty)
+                      else if (widget.suratUrl != null &&
+                          widget.suratUrl!.isNotEmpty)
                         _buildUrlPreview(widget.suratUrl!)
                       else
                         _buildUploadPlaceholder(),
@@ -409,12 +416,18 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                                 decoration: BoxDecoration(
                                   color: Colors.blue.shade50,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.blue.shade200),
+                                  border: Border.all(
+                                    color: Colors.blue.shade200,
+                                  ),
                                 ),
                                 child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.camera_alt_rounded, size: 18, color: Color(0xFF2563EB)),
+                                    Icon(
+                                      Icons.camera_alt_rounded,
+                                      size: 18,
+                                      color: Color(0xFF2563EB),
+                                    ),
                                     SizedBox(width: 8),
                                     Text(
                                       'Ambil Foto',
@@ -438,12 +451,18 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                                 decoration: BoxDecoration(
                                   color: Colors.purple.shade50,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.purple.shade200),
+                                  border: Border.all(
+                                    color: Colors.purple.shade200,
+                                  ),
                                 ),
                                 child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.photo_library_rounded, size: 18, color: Color(0xFF8B5CF6)),
+                                    Icon(
+                                      Icons.photo_library_rounded,
+                                      size: 18,
+                                      color: Color(0xFF8B5CF6),
+                                    ),
                                     SizedBox(width: 8),
                                     Text(
                                       'Pilih Galeri',
@@ -492,7 +511,10 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                             SnackBar(
                               content: const Row(
                                 children: [
-                                  Icon(Icons.check_circle_rounded, color: Colors.white),
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: Colors.white,
+                                  ),
                                   SizedBox(width: 10),
                                   Text('Perubahan presensi berhasil disimpan!'),
                                 ],
@@ -534,7 +556,9 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                         ? null
                         : [
                             BoxShadow(
-                              color: const Color(0xFF2563EB).withValues(alpha: 0.4),
+                              color: const Color(
+                                0xFF2563EB,
+                              ).withValues(alpha: 0.4),
                               blurRadius: 16,
                               offset: const Offset(0, 6),
                             ),
@@ -553,7 +577,11 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                         : const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.save_rounded, color: Colors.white, size: 20),
+                              Icon(
+                                Icons.save_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
                               SizedBox(width: 8),
                               Text(
                                 'SIMPAN PERUBAHAN',
@@ -586,11 +614,7 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
         'Meninggalkan kelas / bolos',
       ];
     } else if (selectedStatus == 'sakit') {
-      suggestions = [
-        'Sakit demam / flu',
-        'Istirahat dokter',
-        'Sakit perut',
-      ];
+      suggestions = ['Sakit demam / flu', 'Istirahat dokter', 'Sakit perut'];
     } else if (selectedStatus == 'izin') {
       suggestions = [
         'Izin acara keluarga',
@@ -604,10 +628,7 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
         'Bangun kesiangan',
       ];
     } else {
-      suggestions = [
-        'Hadir di kelas',
-        'Absensi manual guru',
-      ];
+      suggestions = ['Hadir di kelas', 'Absensi manual guru'];
     }
 
     return Column(
@@ -636,8 +657,10 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
               borderRadius: BorderRadius.circular(20),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0xFF2563EB).withValues(alpha: 0.12)
@@ -669,17 +692,17 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
   }
 
   Widget _buildStudentHeaderCard() {
-    final tglStr = DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(widget.tanggal);
+    final tglStr = DateFormat(
+      'EEEE, d MMMM yyyy',
+      'id_ID',
+    ).format(widget.tanggal);
     final initial = widget.nama.isNotEmpty ? widget.nama[0].toUpperCase() : '?';
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF1E3A8A),
-            Color(0xFF2563EB),
-          ],
+          colors: [Color(0xFF1E3A8A), Color(0xFF2563EB)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -732,21 +755,31 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         'Absen #${widget.no}',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         tglStr,
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -788,7 +821,11 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
                 SizedBox(width: 4),
                 Text(
                   'Foto Baru',
-                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -801,7 +838,7 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
   Widget _buildUrlPreview(String url) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: Image.network(
+      child: PrivateDocumentImage(
         url,
         height: 200,
         width: double.infinity,
@@ -840,7 +877,11 @@ class _EditSiswaFormState extends State<_EditSiswaForm> {
           SizedBox(height: 8),
           Text(
             'Belum ada lampiran surat',
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),

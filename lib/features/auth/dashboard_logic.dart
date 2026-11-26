@@ -1,3 +1,4 @@
+import '../../core/safe_log.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -68,12 +69,12 @@ class DashboardLogic extends ChangeNotifier {
       if (!isBackground) {
         errorMessage = 'Gagal memuat data: ${e.message}';
       }
-      debugPrint('Dashboard Error: ${e.message}');
+      SafeLog.debug('dashboard_logic.dashboard_error');
     } catch (e) {
       if (!isBackground) {
         errorMessage = 'Gagal memuat data: $e';
       }
-      debugPrint('Dashboard Error: $e');
+      SafeLog.debug('dashboard_logic.dashboard_error');
     } finally {
       if (!isBackground) {
         isLoading = false;

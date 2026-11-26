@@ -1,3 +1,4 @@
+import '../../core/safe_log.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -17,7 +18,8 @@ class KelasLogic extends ChangeNotifier {
   String errorMessage = '';
 
   // Filter State
-  String selectedFilter = 'all'; // 'all', 'hadir', 'terlambat', 'sakit_izin', 'alfa', 'belum'
+  String selectedFilter =
+      'all'; // 'all', 'hadir', 'terlambat', 'sakit_izin', 'alfa', 'belum'
 
   // Search State
   final TextEditingController searchController = TextEditingController();
@@ -60,7 +62,8 @@ class KelasLogic extends ChangeNotifier {
 
     filteredList = _originalList.where((s) {
       // 1. Check search query
-      final matchesQuery = query.isEmpty || s.nama.toLowerCase().contains(query);
+      final matchesQuery =
+          query.isEmpty || s.nama.toLowerCase().contains(query);
       if (!matchesQuery) return false;
 
       // 2. Check status filter
@@ -105,8 +108,9 @@ class KelasLogic extends ChangeNotifier {
     }
 
     try {
-      final dataList =
-          await _siswaRepository.getStudentsByClassToday(currentClassName);
+      final dataList = await _siswaRepository.getStudentsByClassToday(
+        currentClassName,
+      );
 
       // Sort by name alphabetically
       dataList.sort((a, b) => a.nama.compareTo(b.nama));
@@ -122,7 +126,7 @@ class KelasLogic extends ChangeNotifier {
       if (!isBackground) {
         errorMessage = 'Gagal memuat data: $e';
       }
-      debugPrint('Error KelasLogic: $e');
+      SafeLog.debug('kelas_logic.error_kelaslogic');
     } finally {
       if (!isBackground) {
         isLoading = false;

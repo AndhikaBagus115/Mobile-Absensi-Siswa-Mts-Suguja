@@ -21,6 +21,11 @@ class TestBackend {
   String role = 'guru';
   bool rejectLogin = false;
   bool missingProfile = false;
+  bool invalidSession = false;
+  bool denyChildren = false;
+  bool rejectOtp = false;
+  bool denyDocuments = false;
+  bool rejectPush = false;
 
   late final http.Client client = MockClient(_respond);
 
@@ -30,7 +35,13 @@ class TestBackend {
     final expiry = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
     final token =
         '${encode({'alg': 'HS256', 'typ': 'JWT'})}.'
-        '${encode({'sub': userId, 'exp': expiry})}.synthetic';
+        '${encode({
+          'sub': userId,
+          'exp': expiry,
+          'amr': [
+            {'method': role == 'wali_murid' ? 'otp' : 'password'},
+          ],
+        })}.synthetic';
     return {
       'access_token': token,
       'refresh_token': 'synthetic-refresh-token',
@@ -49,9 +60,54 @@ class TestBackend {
   }
 
   Future<http.Response> _respond(http.Request request) async {
+    final method = request.method.toUpperCase();
     requests.add(request);
     final path = request.url.path;
     if (request.url.origin != url) return _unexpected(request);
+    if (request.method == 'GET' && path == '/auth/v1/user') {
+      return invalidSession
+          ? _json(request, {'msg': 'Invalid JWT'}, status: 401)
+          : _json(request, session['user']);
+    }
+    if (request.method == 'POST' && path == '/auth/v1/otp') {
+      return _json(request, <String, dynamic>{});
+    }
+    if (request.method == 'POST' && path == '/auth/v1/verify') {
+      return rejectOtp
+          ? _json(request, {
+              'msg': 'Token has expired',
+              'error_code': 'otp_expired',
+            }, status: 403)
+          : _json(request, session);
+    }
+    if (request.method == 'POST' && path == '/auth/v1/logout') {
+      return http.Response('', 204, request: request);
+    }
+    if (request.method == 'POST' && path == '/rest/v1/rpc/siab_my_children') {
+      return role == 'wali_murid' && !denyChildren
+          ? _json(request, [child])
+          : _json(request, {
+              'code': '42501',
+              'message': 'Permission denied',
+            }, status: 403);
+    }
+    if (request.method == 'POST' &&
+        path.startsWith('/storage/v1/object/sign/')) {
+      return denyDocuments
+          ? _json(request, {
+              'error': 'Access denied',
+              'message': 'Access denied',
+            }, status: 403)
+          : _json(request, {
+              'signedURL':
+                  '${path.replaceFirst('/storage/v1', '')}?token=synthetic',
+            });
+    }
+    if (method == 'POST' && path == '/functions/v1/send-push') {
+      return _json(request, {
+        'accepted': !rejectPush,
+      }, status: rejectPush ? 403 : 200);
+    }
     if (request.method == 'POST' && path == '/auth/v1/token') {
       return rejectLogin
           ? _json(request, {
@@ -61,7 +117,7 @@ class TestBackend {
           : _json(request, session);
     }
     if (request.method == 'POST' &&
-        path == '/rest/v1/rpc/get_guru_dashboard_summary') {
+        path == '/rest/v1/rpc/siab_guru_dashboard') {
       return _json(request, [
         {
           'nama_kelas': 'Kelas Uji',
@@ -79,7 +135,7 @@ class TestBackend {
     final List<Map<String, dynamic>> rows;
     switch (path) {
       case '/rest/v1/guru':
-        rows = missingProfile
+        rows = missingProfile || role == 'wali_murid'
             ? []
             : [
                 {

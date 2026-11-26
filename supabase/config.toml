@@ -1,0 +1,4 @@
+project_id = "siab"
+
+[functions.send-push]
+verify_jwt = true

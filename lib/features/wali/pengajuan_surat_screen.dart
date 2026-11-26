@@ -1,3 +1,5 @@
+import '../../core/safe_log.dart';
+import '../../core/ui/private_document_image.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,10 +17,7 @@ import '../../data/repositories/repositories.dart';
 class PengajuanSuratScreen extends StatefulWidget {
   final ChildProfile child;
 
-  const PengajuanSuratScreen({
-    super.key,
-    required this.child,
-  });
+  const PengajuanSuratScreen({super.key, required this.child});
 
   @override
   State<PengajuanSuratScreen> createState() => _PengajuanSuratScreenState();
@@ -58,7 +57,9 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
   Future<void> _loadHistory() async {
     setState(() => _isLoadingHistory = true);
     try {
-      final list = await _suratRepository.getRiwayatSuratBySiswa(widget.child.id);
+      final list = await _suratRepository.getRiwayatSuratBySiswa(
+        widget.child.id,
+      );
       if (mounted) {
         setState(() {
           _history = list;
@@ -93,12 +94,15 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
         );
 
         setState(() {
-          _selectedImage =
-              compressed != null ? File(compressed.path) : originalFile;
+          _selectedImage = compressed != null
+              ? File(compressed.path)
+              : originalFile;
         });
       }
     } catch (e) {
-      debugPrint('[PengajuanSurat] Error picking image: $e');
+      SafeLog.debug(
+        'pengajuan_surat_screen.pengajuansurat_error_picking_image',
+      );
       _showSnackbar('Gagal mengambil gambar: $e', isError: true);
     }
   }
@@ -176,8 +180,9 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
             ),
           ],
         ),
-        backgroundColor:
-            isError ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+        backgroundColor: isError
+            ? const Color(0xFFDC2626)
+            : const Color(0xFF10B981),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: isError ? 4 : 3),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -202,8 +207,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
         backgroundColor: const Color(0xFF1E3A8A),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: Colors.white, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         bottom: TabBar(
@@ -212,8 +220,10 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
           indicatorWeight: 3,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          labelStyle:
-              const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
           tabs: const [
             Tab(
               icon: Icon(Icons.edit_document, size: 18),
@@ -228,17 +238,16 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildFormTab(),
-          _buildHistoryTab(),
-        ],
+        children: [_buildFormTab(), _buildHistoryTab()],
       ),
     );
   }
 
   Widget _buildFormTab() {
-    final tglMulaiStr =
-        DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_tanggalMulai);
+    final tglMulaiStr = DateFormat(
+      'EEEE, d MMMM yyyy',
+      'id_ID',
+    ).format(_tanggalMulai);
     final tglSelesaiStr = _tanggalSelesai != null
         ? DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_tanggalSelesai!)
         : null;
@@ -262,8 +271,9 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                 children: [
                   CircleAvatar(
                     radius: 20,
-                    backgroundColor:
-                        const Color(0xFF2563EB).withValues(alpha: 0.1),
+                    backgroundColor: const Color(
+                      0xFF2563EB,
+                    ).withValues(alpha: 0.1),
                     child: Text(
                       widget.child.nama.isNotEmpty
                           ? widget.child.nama[0].toUpperCase()
@@ -357,11 +367,15 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
               child: Column(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.calendar_today_rounded,
-                        color: Color(0xFF2563EB), size: 20),
-                    title: const Text('Tanggal Mulai',
-                        style: TextStyle(
-                            fontSize: 12, color: Color(0xFF64748B))),
+                    leading: const Icon(
+                      Icons.calendar_today_rounded,
+                      color: Color(0xFF2563EB),
+                      size: 20,
+                    ),
+                    title: const Text(
+                      'Tanggal Mulai',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                     subtitle: Text(
                       tglMulaiStr,
                       style: const TextStyle(
@@ -370,14 +384,18 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                         color: Color(0xFF1E293B),
                       ),
                     ),
-                    trailing: const Icon(Icons.edit_calendar_rounded,
-                        size: 18, color: Color(0xFF94A3B8)),
+                    trailing: const Icon(
+                      Icons.edit_calendar_rounded,
+                      size: 18,
+                      color: Color(0xFF94A3B8),
+                    ),
                     onTap: () async {
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: _tanggalMulai,
-                        firstDate:
-                            DateTime.now().subtract(const Duration(days: 7)),
+                        firstDate: DateTime.now().subtract(
+                          const Duration(days: 7),
+                        ),
                         lastDate: DateTime.now().add(const Duration(days: 30)),
                       );
                       if (picked != null) {
@@ -387,11 +405,15 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                   ),
                   const Divider(height: 1, color: Color(0xFFF1F5F9)),
                   ListTile(
-                    leading: const Icon(Icons.event_repeat_rounded,
-                        color: Color(0xFF8B5CF6), size: 20),
-                    title: const Text('Tanggal Selesai (Opsional)',
-                        style: TextStyle(
-                            fontSize: 12, color: Color(0xFF64748B))),
+                    leading: const Icon(
+                      Icons.event_repeat_rounded,
+                      color: Color(0xFF8B5CF6),
+                      size: 20,
+                    ),
+                    title: const Text(
+                      'Tanggal Selesai (Opsional)',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                     subtitle: Text(
                       tglSelesaiStr ?? 'Hanya 1 Hari (Sama)',
                       style: TextStyle(
@@ -404,17 +426,24 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                     ),
                     trailing: _tanggalSelesai != null
                         ? IconButton(
-                            icon: const Icon(Icons.clear_rounded,
-                                size: 18, color: Color(0xFFEF4444)),
+                            icon: const Icon(
+                              Icons.clear_rounded,
+                              size: 18,
+                              color: Color(0xFFEF4444),
+                            ),
                             onPressed: () =>
                                 setState(() => _tanggalSelesai = null),
                           )
-                        : const Icon(Icons.add_rounded,
-                            size: 20, color: Color(0xFF94A3B8)),
+                        : const Icon(
+                            Icons.add_rounded,
+                            size: 20,
+                            color: Color(0xFF94A3B8),
+                          ),
                     onTap: () async {
                       final picked = await showDatePicker(
                         context: context,
-                        initialDate: _tanggalSelesai ??
+                        initialDate:
+                            _tanggalSelesai ??
                             _tanggalMulai.add(const Duration(days: 1)),
                         firstDate: _tanggalMulai,
                         lastDate: _tanggalMulai.add(const Duration(days: 14)),
@@ -459,8 +488,10 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide:
-                      const BorderSide(color: Color(0xFF2563EB), width: 2),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF2563EB),
+                    width: 2,
+                  ),
                 ),
               ),
               validator: (v) {
@@ -485,8 +516,10 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: _jenis == 'sakit'
                         ? const Color(0xFFFEF2F2)
@@ -542,8 +575,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                       : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.send_rounded,
-                                color: Colors.white, size: 18),
+                            Icon(
+                              Icons.send_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'KIRIM PENGAJUAN SURAT',
@@ -646,8 +682,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
               backgroundColor: Colors.black.withValues(alpha: 0.6),
               child: IconButton(
                 padding: EdgeInsets.zero,
-                icon: const Icon(Icons.close_rounded,
-                    color: Colors.white, size: 18),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
                 onPressed: () => setState(() => _selectedImage = null),
               ),
             ),
@@ -680,8 +719,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      size: 14, color: Color(0xFFEF4444)),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: Color(0xFFEF4444),
+                  ),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -698,69 +740,75 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
             ),
           ],
           Row(
-        children: [
-          Expanded(
-            child: BouncingWidget(
-              onTap: () => _pickImage(ImageSource.camera),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.camera_alt_rounded,
-                        color: Color(0xFF2563EB), size: 18),
-                    SizedBox(width: 6),
-                    Text(
-                      'Kamera',
-                      style: TextStyle(
-                        color: Color(0xFF2563EB),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12.5,
-                      ),
+            children: [
+              Expanded(
+                child: BouncingWidget(
+                  onTap: () => _pickImage(ImageSource.camera),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ],
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.camera_alt_rounded,
+                          color: Color(0xFF2563EB),
+                          size: 18,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Kamera',
+                          style: TextStyle(
+                            color: Color(0xFF2563EB),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: BouncingWidget(
-              onTap: () => _pickImage(ImageSource.gallery),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.photo_library_rounded,
-                        color: Color(0xFF8B5CF6), size: 18),
-                    SizedBox(width: 6),
-                    Text(
-                      'Galeri',
-                      style: TextStyle(
-                        color: Color(0xFF8B5CF6),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12.5,
-                      ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: BouncingWidget(
+                  onTap: () => _pickImage(ImageSource.gallery),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ],
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.photo_library_rounded,
+                          color: Color(0xFF8B5CF6),
+                          size: 18,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Galeri',
+                          style: TextStyle(
+                            color: Color(0xFF8B5CF6),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ],
       ),
-    ],
-  ),
-);
+    );
   }
 
   Widget _buildHistoryTab() {
@@ -841,8 +889,8 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
         break;
     }
 
-    final dateDisplay = item.tanggalSelesai != null &&
-            item.tanggalSelesai != item.tanggal
+    final dateDisplay =
+        item.tanggalSelesai != null && item.tanggalSelesai != item.tanggal
         ? '${item.tanggal} s/d ${item.tanggalSelesai}'
         : item.tanggal;
 
@@ -868,7 +916,10 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: item.isSakit
                       ? const Color(0xFF3B82F6).withValues(alpha: 0.1)
@@ -915,8 +966,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
           // Date Row
           Row(
             children: [
-              const Icon(Icons.calendar_today_rounded,
-                  size: 14, color: Color(0xFF64748B)),
+              const Icon(
+                Icons.calendar_today_rounded,
+                size: 14,
+                color: Color(0xFF64748B),
+              ),
               const SizedBox(width: 6),
               Text(
                 dateDisplay,
@@ -955,8 +1009,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.chat_bubble_outline_rounded,
-                      size: 14, color: Color(0xFF2563EB)),
+                  const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    size: 14,
+                    color: Color(0xFF2563EB),
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -979,7 +1036,10 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
             GestureDetector(
               onTap: () => _showImageDialog(item.fileUrl!),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(8),
@@ -987,8 +1047,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.image_outlined,
-                        size: 14, color: Color(0xFF2563EB)),
+                    Icon(
+                      Icons.image_outlined,
+                      size: 14,
+                      color: Color(0xFF2563EB),
+                    ),
                     SizedBox(width: 6),
                     Text(
                       'Lihat Lampiran Foto',
@@ -1024,7 +1087,11 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                 icon: const CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.black54,
-                  child: Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
               ),
             ),
@@ -1040,7 +1107,7 @@ class _PengajuanSuratScreenState extends State<PengajuanSuratScreen>
                   panEnabled: true,
                   minScale: 0.5,
                   maxScale: 4.0,
-                  child: Image.network(
+                  child: PrivateDocumentImage(
                     url,
                     fit: BoxFit.contain,
                     loadingBuilder: (context, child, progress) {

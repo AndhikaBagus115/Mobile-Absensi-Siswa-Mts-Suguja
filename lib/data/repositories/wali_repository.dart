@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart';
+import '../../core/safe_log.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException;
 
 import '../../core/constants.dart';
 import '../../core/exceptions.dart';
@@ -12,211 +12,51 @@ import '../services/wali_storage_service.dart';
 class WaliRepository {
   final SupabaseClient _client = supabaseService.client;
 
-  /// Authenticate parent using Student's NIS
-  Future<ChildProfile> loginWithNis({
-    required String nis,
-  }) async {
-    final cleanNis = nis.trim();
-
-    if (cleanNis.isEmpty) {
-      throw ValidationException(message: 'NIS tidak boleh kosong');
+  /// The server derives the parent account from auth.uid(); no caller user ID.
+  Future<List<ChildProfile>> getLinkedChildren() async {
+    if (!supabaseService.isAuthenticated) {
+      throw AuthException(message: 'Silakan masuk dengan OTP terlebih dahulu.');
     }
-
     try {
-      // 1. Fetch student by NIS with specific valid columns
-      final siswaRes = await _client
-          .from(DbTables.siswa)
-          .select('${SiswaColumns.id}, ${SiswaColumns.nis}, ${SiswaColumns.nama}, ${SiswaColumns.kelasId}')
-          .eq(SiswaColumns.nis, cleanNis)
-          .maybeSingle();
-
-      debugPrint('--- [WaliRepo Login] Data Siswa Ditemukan: $siswaRes ---');
-
-      if (siswaRes == null) {
-        throw ValidationException(
-          message: 'NIS siswa tidak terdaftar di sistem sekolah.',
-        );
-      }
-
-      final siswaId = siswaRes[SiswaColumns.id] as int;
-      final namaSiswa = siswaRes[SiswaColumns.nama] as String? ?? 'Siswa';
-      final rawKelasId = siswaRes['kelas_id'] ??
-          siswaRes['id_kelas'] ??
-          siswaRes['kelasId'] ??
-          siswaRes[SiswaColumns.kelasId];
-
-      final int? kelasId = rawKelasId is int
-          ? rawKelasId
-          : (rawKelasId != null ? int.tryParse(rawKelasId.toString()) : null);
-
-      debugPrint('--- [WaliRepo Login] rawKelasId: $rawKelasId, parsed: $kelasId ---');
-
-      // 2. Fetch Class Details & Wali Kelas with robust UUID/Int and fallback resolution
-      final waliInfo = await _resolveWaliKelasInfo(
-        kelasId,
-        null,
-      );
-
-      return ChildProfile(
-        id: siswaId,
-        nis: cleanNis,
-        nama: namaSiswa,
-        kelasId: kelasId,
-        namaKelas: waliInfo.namaKelas,
-        waliKelasNama: waliInfo.waliKelasNama,
-        waliKelasNoHp: waliInfo.waliKelasNoHp,
-      );
-    } on PostgrestException catch (e) {
+      final rows = await _client.rpc('siab_my_children') as List;
+      return rows
+          .map(
+            (row) =>
+                ChildProfile.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
+          .toList();
+    } on PostgrestException catch (error) {
       throw RepositoryException(
-        message: 'Gagal memverifikasi NIS siswa: ${e.message}',
-        originalException: e,
+        message: 'Akses anak belum tersedia. Hubungi admin sekolah.',
+        originalException: error,
       );
     }
   }
 
-  /// Refresh / fetch fresh ChildProfile by student ID
-  Future<ChildProfile?> getChildProfileById(int siswaId) async {
-    try {
-      final siswaRes = await _client
-          .from(DbTables.siswa)
-          .select('${SiswaColumns.id}, ${SiswaColumns.nis}, ${SiswaColumns.nama}, ${SiswaColumns.kelasId}')
-          .eq(SiswaColumns.id, siswaId)
-          .maybeSingle();
-
-      debugPrint('--- [WaliRepo Refresh] Data Siswa Ditemukan: $siswaRes ---');
-
-      if (siswaRes == null) return null;
-
-      final cleanNis = siswaRes[SiswaColumns.nis] as String? ?? '';
-      final namaSiswa = siswaRes[SiswaColumns.nama] as String? ?? 'Siswa';
-      final rawKelasId = siswaRes['kelas_id'] ??
-          siswaRes['id_kelas'] ??
-          siswaRes['kelasId'] ??
-          siswaRes[SiswaColumns.kelasId];
-
-      final int? kelasId = rawKelasId is int
-          ? rawKelasId
-          : (rawKelasId != null ? int.tryParse(rawKelasId.toString()) : null);
-
-      final waliInfo = await _resolveWaliKelasInfo(
-        kelasId,
-        null,
-      );
-
-      return ChildProfile(
-        id: siswaId,
-        nis: cleanNis,
-        nama: namaSiswa,
-        kelasId: kelasId,
-        namaKelas: waliInfo.namaKelas,
-        waliKelasNama: waliInfo.waliKelasNama,
-        waliKelasNoHp: waliInfo.waliKelasNoHp,
-      );
-    } catch (e) {
-      debugPrint('[WaliRepo] Error getChildProfileById: $e');
-      return null;
+  /// NIS selects an already linked child; it never creates authentication.
+  Future<ChildProfile> findLinkedChildByNis({required String nis}) async {
+    final children = await getLinkedChildren();
+    for (final child in children) {
+      if (child.nis == nis.trim()) return child;
     }
-  }
-
-  /// Helper to robustly resolve class name and homeroom teacher (Wali Kelas) info
-  Future<({String namaKelas, String? waliKelasNama, String? waliKelasNoHp})>
-      _resolveWaliKelasInfo(int? kelasId, String? defaultNamaKelas) async {
-    String namaKelas = defaultNamaKelas ?? 'Belum Ditentukan';
-    String? waliKelasNama;
-    String? waliKelasNoHp;
-
-    if (kelasId != null) {
-      try {
-        final kelasRes = await _client
-            .from(DbTables.kelas)
-            .select()
-            .eq(KelasColumns.id, kelasId)
-            .maybeSingle();
-
-        if (kelasRes != null) {
-          namaKelas = kelasRes[KelasColumns.namaKelas] as String? ??
-              kelasRes['nama'] as String? ??
-              'Kelas $kelasId';
-
-          final rawWali = kelasRes['wali_kelas'] ??
-              kelasRes['wali_kelas_id'] ??
-              kelasRes['wali_id'];
-
-          if (rawWali != null && rawWali.toString().isNotEmpty) {
-            final rawWaliStr = rawWali.toString().trim();
-            // If rawWali is a teacher name directly
-            if (rawWaliStr.length > 3 &&
-                !rawWaliStr.contains('-') &&
-                int.tryParse(rawWaliStr) == null) {
-              waliKelasNama = rawWaliStr;
-            }
-
-            try {
-              final isUuid = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(rawWaliStr);
-              final isInt = int.tryParse(rawWaliStr) != null;
-
-              var guruQuery = _client
-                  .from(DbTables.guru)
-                  .select('${GuruColumns.id}, ${GuruColumns.nama}, ${GuruColumns.noHp}');
-
-              if (isUuid || isInt) {
-                guruQuery = guruQuery.eq(GuruColumns.id, rawWaliStr);
-              } else {
-                guruQuery = guruQuery.eq(GuruColumns.nama, rawWaliStr);
-              }
-
-              final guruRes = await guruQuery.maybeSingle();
-
-              if (guruRes != null) {
-                waliKelasNama = guruRes[GuruColumns.nama] as String? ?? waliKelasNama;
-                waliKelasNoHp = guruRes[GuruColumns.noHp] as String?;
-              }
-            } catch (err) {
-              debugPrint('--- [WaliRepo] Info query guru: $err ---');
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('--- [WaliRepo] Gagal memuat data kelas: $e ---');
-      }
-    }
-
-    // Fallback: If waliKelasNoHp is still null, search table guru for teacher assigned to this class name
-    if (waliKelasNoHp == null || waliKelasNoHp.isEmpty) {
-      try {
-        final allGurus = await _client
-            .from(DbTables.guru)
-            .select('${GuruColumns.id}, ${GuruColumns.nama}, ${GuruColumns.noHp}, ${GuruColumns.kelasDiampu}');
-        for (final g in (allGurus as List)) {
-          final kDiampu = g[GuruColumns.kelasDiampu];
-          final gNoHp = g[GuruColumns.noHp] as String?;
-
-          if (gNoHp != null && gNoHp.isNotEmpty) {
-            if (kDiampu != null && kDiampu.toString().contains(namaKelas)) {
-              waliKelasNama ??= g[GuruColumns.nama] as String?;
-              waliKelasNoHp = gNoHp;
-              break;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    return (
-      namaKelas: namaKelas,
-      waliKelasNama: waliKelasNama,
-      waliKelasNoHp: waliKelasNoHp,
+    throw ValidationException(
+      message: 'Anak belum ditautkan ke akun ini. Hubungi admin sekolah.',
     );
   }
 
-  /// Alias for login using NIS
-  Future<ChildProfile> loginWithNisPin({
-    required String nis,
-    String? pin,
-  }) => loginWithNis(nis: nis);
+  Future<ChildProfile?> getChildProfileById(int siswaId) async {
+    final children = await getLinkedChildren();
+    for (final child in children) {
+      if (child.id == siswaId) return child;
+    }
+    return null;
+  }
 
   /// Get today's attendance status for a student
-  Future<TodayAttendance> getTodayAttendance(int siswaId, {int? kelasId}) async {
+  Future<TodayAttendance> getTodayAttendance(
+    int siswaId, {
+    int? kelasId,
+  }) async {
     try {
       final now = DateTime.now();
       final todayStr = DateFormat('yyyy-MM-dd').format(now);
@@ -238,7 +78,9 @@ class WaliRepository {
 
       final response = await _client
           .from(DbTables.absensi)
-          .select('${AbsensiColumns.id}, ${AbsensiColumns.siswaId}, ${AbsensiColumns.tanggal}, ${AbsensiColumns.status}, ${AbsensiColumns.waktuMasuk}, ${AbsensiColumns.waktuPulang}, ${AbsensiColumns.keterangan}')
+          .select(
+            '${AbsensiColumns.id}, ${AbsensiColumns.siswaId}, ${AbsensiColumns.tanggal}, ${AbsensiColumns.status}, ${AbsensiColumns.waktuMasuk}, ${AbsensiColumns.waktuPulang}, ${AbsensiColumns.keterangan}',
+          )
           .eq(AbsensiColumns.siswaId, siswaId)
           .eq(AbsensiColumns.tanggal, todayStr)
           .maybeSingle();
@@ -248,8 +90,8 @@ class WaliRepository {
       }
 
       return TodayAttendance.fromJson(response, targetJamMasuk: targetJamMasuk);
-    } on PostgrestException catch (e) {
-      debugPrint('[WaliRepo] Error fetching today attendance: ${e.message}');
+    } on PostgrestException {
+      SafeLog.debug('wali_repository.walirepo_error_fetching_today_attendance');
       return TodayAttendance.empty(siswaId);
     }
   }
@@ -264,7 +106,8 @@ class WaliRepository {
       final monthStr = month.toString().padLeft(2, '0');
       final daysInMonth = DateTime(year, month + 1, 0).day;
       final startDate = '$year-$monthStr-01';
-      final endDate = '$year-$monthStr-${daysInMonth.toString().padLeft(2, '0')}';
+      final endDate =
+          '$year-$monthStr-${daysInMonth.toString().padLeft(2, '0')}';
 
       final response = await _client
           .from(DbTables.absensi)
@@ -282,7 +125,9 @@ class WaliRepository {
       final records = response as List;
       for (final raw in records) {
         final item = raw as Map<String, dynamic>;
-        final status = AttendanceStatus.fromValue(item[AbsensiColumns.status] as String?);
+        final status = AttendanceStatus.fromValue(
+          item[AbsensiColumns.status] as String?,
+        );
 
         switch (status) {
           case AttendanceStatus.hadir:
@@ -344,7 +189,9 @@ class WaliRepository {
           if (tglParts.length == 3) {
             final day = int.tryParse(tglParts[2]) ?? 0;
             if (day >= startDay && day <= endDay) {
-              final status = AttendanceStatus.fromValue(item[AbsensiColumns.status] as String?);
+              final status = AttendanceStatus.fromValue(
+                item[AbsensiColumns.status] as String?,
+              );
               weekRecorded++;
               if (status.isPresent || status.isLate) {
                 weekAttended++;
@@ -381,8 +228,8 @@ class WaliRepository {
         tahun: year,
         weeklyTrend: weeklyTrend,
       );
-    } on PostgrestException catch (e) {
-      debugPrint('[WaliRepo] Error fetching monthly stats: ${e.message}');
+    } on PostgrestException {
+      SafeLog.debug('wali_repository.walirepo_error_fetching_monthly_stats');
       return MonthlyAttendanceStats.empty(month, year);
     }
   }
@@ -397,7 +244,8 @@ class WaliRepository {
       final monthStr = month.toString().padLeft(2, '0');
       final daysInMonth = DateTime(year, month + 1, 0).day;
       final startDate = '$year-$monthStr-01';
-      final endDate = '$year-$monthStr-${daysInMonth.toString().padLeft(2, '0')}';
+      final endDate =
+          '$year-$monthStr-${daysInMonth.toString().padLeft(2, '0')}';
 
       final response = await _client
           .from(DbTables.absensi)
@@ -408,15 +256,16 @@ class WaliRepository {
           .order(AbsensiColumns.tanggal, ascending: false);
 
       return (response as List).map((json) => Absensi.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      debugPrint('[WaliRepo] Error fetching history: ${e.message}');
+    } on PostgrestException {
+      SafeLog.debug('wali_repository.walirepo_error_fetching_history');
       return [];
     }
   }
 
   /// Get announcement & broadcast notifications for child from Supabase & local inbox
   Future<List<WaliNotificationItem>> getNotificationsForChild(
-      ChildProfile child) async {
+    ChildProfile child,
+  ) async {
     final readIds = await waliStorageService.getReadNotificationIds();
     final List<WaliNotificationItem> items = [];
     final Set<String> processedIds = {};
@@ -434,7 +283,7 @@ class WaliRepository {
           // Fallback if created_at column is not present or named differently
           response = await _client.from(DbTables.pengumuman).select();
         } catch (e) {
-          debugPrint('[WaliRepo] Info query tabel pengumuman: $e');
+          SafeLog.debug('wali_repository.walirepo_info_query_tabel_pengumuman');
         }
       }
 
@@ -443,9 +292,10 @@ class WaliRepository {
           final map = row as Map<String, dynamic>;
 
           // Target Role Filter (e.g. 'all', 'wali_murid', 'semua', 'umum')
-          final targetRole = (map['target_role'] ?? map['target'] ?? map['role'])
-              ?.toString()
-              .toLowerCase();
+          final targetRole =
+              (map['target_role'] ?? map['target'] ?? map['role'])
+                  ?.toString()
+                  .toLowerCase();
           if (targetRole != null &&
               targetRole.isNotEmpty &&
               targetRole != 'all' &&
@@ -468,7 +318,8 @@ class WaliRepository {
           }
 
           // Target Student (Siswa) Filter
-          final rawSiswaId = map['siswa_id'] ??
+          final rawSiswaId =
+              map['siswa_id'] ??
               map['target_siswa_id'] ??
               map['id_siswa'] ??
               map['student_id'];
@@ -486,18 +337,43 @@ class WaliRepository {
             }
           }
 
-          final id = (map['id'] ?? map['uuid'] ?? map['pengumuman_id'])?.toString() ??
+          final id =
+              (map['id'] ?? map['uuid'] ?? map['pengumuman_id'])?.toString() ??
               'pengumuman_${map.hashCode}';
-          final title = (map['judul'] ?? map['title'] ?? map['subjek'] ?? map['nama'] ?? 'Pengumuman Sekolah')
-              .toString();
-          final message = (map['isi'] ?? map['konten'] ?? map['pesan'] ?? map['deskripsi'] ?? map['keterangan'] ?? map['content'] ?? '')
-              .toString();
-          final rawTime = map['created_at'] ?? map['tanggal'] ?? map['tgl'] ?? map['waktu'] ?? map['updated_at'];
+          final title =
+              (map['judul'] ??
+                      map['title'] ??
+                      map['subjek'] ??
+                      map['nama'] ??
+                      'Pengumuman Sekolah')
+                  .toString();
+          final message =
+              (map['isi'] ??
+                      map['konten'] ??
+                      map['pesan'] ??
+                      map['deskripsi'] ??
+                      map['keterangan'] ??
+                      map['content'] ??
+                      '')
+                  .toString();
+          final rawTime =
+              map['created_at'] ??
+              map['tanggal'] ??
+              map['tgl'] ??
+              map['waktu'] ??
+              map['updated_at'];
           final timestamp = rawTime != null
               ? (DateTime.tryParse(rawTime.toString()) ?? DateTime.now())
               : DateTime.now();
-          final author = (map['penulis'] ?? map['author'] ?? map['created_by'] ?? map['nama_guru'] ?? map['sender'])?.toString();
-          final category = (map['kategori'] ?? map['tipe'] ?? map['category'])?.toString();
+          final author =
+              (map['penulis'] ??
+                      map['author'] ??
+                      map['created_by'] ??
+                      map['nama_guru'] ??
+                      map['sender'])
+                  ?.toString();
+          final category = (map['kategori'] ?? map['tipe'] ?? map['category'])
+              ?.toString();
 
           processedIds.add(id);
           items.add(
@@ -516,18 +392,20 @@ class WaliRepository {
         }
       }
     } catch (e) {
-      debugPrint('[WaliRepo] Error fetching pengumuman: $e');
+      SafeLog.debug('wali_repository.walirepo_error_fetching_pengumuman');
     }
 
     // 2. Merge local push notifications received via OneSignal (inbox) - FILTERED BY CHILD
     try {
-      final localPushItems = await waliStorageService.getLocalInAppNotifications();
+      final localPushItems = await waliStorageService
+          .getLocalInAppNotifications();
       for (final localItem in localPushItems) {
         if (processedIds.contains(localItem.id)) continue;
 
         // Check if this push notification was targeted to a specific child
         final notifData = localItem.data ?? {};
-        final rawNotifSiswaId = notifData['siswa_id'] ??
+        final rawNotifSiswaId =
+            notifData['siswa_id'] ??
             notifData['student_id'] ??
             notifData['id_siswa'];
         if (rawNotifSiswaId != null) {
@@ -544,7 +422,8 @@ class WaliRepository {
           }
         }
 
-        final rawNotifKelasId = notifData['kelas_id'] ?? notifData['student_class'];
+        final rawNotifKelasId =
+            notifData['kelas_id'] ?? notifData['student_class'];
         if (rawNotifKelasId != null && child.kelasId != null) {
           final parsedKId = int.tryParse(rawNotifKelasId.toString());
           if (parsedKId != null && parsedKId != child.kelasId) {
@@ -568,7 +447,9 @@ class WaliRepository {
         );
       }
     } catch (e) {
-      debugPrint('[WaliRepo] Error merging local notifications: $e');
+      SafeLog.debug(
+        'wali_repository.walirepo_error_merging_local_notifications',
+      );
     }
 
     // 3. Sort newest first

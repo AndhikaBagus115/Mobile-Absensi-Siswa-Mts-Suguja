@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Application-wide constants and configuration
 class AppConstants {
@@ -8,10 +7,10 @@ class AppConstants {
 
   /// Get Supabase URL from environment variables
   static String get supabaseUrl {
-    var url = dotenv.env['SUPABASE_URL']?.trim();
-    if (url == null || url.isEmpty) {
+    var url = const String.fromEnvironment('SUPABASE_URL').trim();
+    if (url.isEmpty) {
       throw Exception(
-        'SUPABASE_URL is not configured. Please check your .env file.',
+        'SUPABASE_URL is not configured. Use --dart-define-from-file=config/public.json.',
       );
     }
     url = url.replaceAll(RegExp(r'/rest/v1/?$'), '');
@@ -23,10 +22,10 @@ class AppConstants {
 
   /// Get Supabase Anonymous Key from environment variables
   static String get supabaseAnonKey {
-    final key = dotenv.env['SUPABASE_ANON_KEY'];
-    if (key == null || key.isEmpty) {
+    const key = String.fromEnvironment('SUPABASE_ANON_KEY');
+    if (key.isEmpty) {
       throw Exception(
-        'SUPABASE_ANON_KEY is not configured. Please check your .env file.',
+        'SUPABASE_ANON_KEY is not configured. Use --dart-define-from-file=config/public.json.',
       );
     }
     return key;
@@ -34,25 +33,19 @@ class AppConstants {
 
   /// Get application environment (development, staging, production)
   static String get appEnvironment {
-    return dotenv.env['APP_ENVIRONMENT'] ?? 'development';
+    return const String.fromEnvironment(
+      'APP_ENVIRONMENT',
+      defaultValue: 'development',
+    );
   }
 
   /// Get OneSignal App ID from environment variables
   static String get onesignalAppId {
-    return dotenv.env['ONESIGNAL_APP_ID']?.trim() ?? '';
-  }
-
-  /// Get OneSignal REST API Key from environment variables (for sending notifications)
-  static String get onesignalRestApiKey {
-    return dotenv.env['ONESIGNAL_REST_API_KEY']?.trim() ?? '';
+    return const String.fromEnvironment('ONESIGNAL_APP_ID').trim();
   }
 
   /// Check if OneSignal is configured
   static bool get isOneSignalConfigured => onesignalAppId.isNotEmpty;
-
-  /// Check if OneSignal can send notifications via REST API
-  static bool get canSendNotifications =>
-      isOneSignalConfigured && onesignalRestApiKey.isNotEmpty;
 
   /// Check if running in production environment
   static bool get isProduction => appEnvironment == 'production';
@@ -307,6 +300,6 @@ abstract class StorageBuckets {
 // ============================================================================
 
 abstract class RpcFunctions {
-  static const String getGuruDashboardSummary = 'get_guru_dashboard_summary';
-  static const String getSiswaKelasHariIni = 'get_siswa_kelas_hari_ini';
+  static const String getGuruDashboardSummary = 'siab_guru_dashboard';
+  static const String getSiswaKelasHariIni = 'siab_kelas_today';
 }

@@ -1,3 +1,4 @@
+import '../../core/safe_log.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import '../../core/constants.dart';
 import '../../core/ui/bouncing_widget.dart';
 import '../../data/models/wali_murid_models.dart';
 import '../../data/repositories/wali_repository.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/services/wali_storage_service.dart';
 import '../auth/form_login.dart';
 import 'widgets/add_child_dialog.dart';
@@ -106,7 +108,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
       final targetChild = active ?? children.first;
 
       // 1. Instant Cache Load (Zero-delay perceptual load)
-      final cachedAtt = await waliStorageService.getCachedTodayAttendance(targetChild.id);
+      final cachedAtt = await waliStorageService.getCachedTodayAttendance(
+        targetChild.id,
+      );
       final cachedStats = await waliStorageService.getCachedMonthlyStats(
         targetChild.id,
         _selectedMonth.month,
@@ -126,13 +130,18 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
       }
       _startAutoRefresh();
     } catch (e) {
-      debugPrint('[WaliDashboard] Error loading initial data: $e');
+      SafeLog.debug(
+        'wali_dashboard_screen.walidashboard_error_loading_initial_data',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _fetchChildData(ChildProfile child, {bool isBackground = false}) async {
+  Future<void> _fetchChildData(
+    ChildProfile child, {
+    bool isBackground = false,
+  }) async {
     try {
       final profileFuture = isBackground
           ? Future<ChildProfile?>.value(null)
@@ -160,12 +169,14 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
 
       // Cache fresh data locally
       unawaited(waliStorageService.cacheTodayAttendance(child.id, freshToday));
-      unawaited(waliStorageService.cacheMonthlyStats(
-        child.id,
-        _selectedMonth.month,
-        _selectedMonth.year,
-        freshStats,
-      ));
+      unawaited(
+        waliStorageService.cacheMonthlyStats(
+          child.id,
+          _selectedMonth.month,
+          _selectedMonth.year,
+          freshStats,
+        ),
+      );
 
       if (mounted) {
         final freshProfile = results[2] as ChildProfile?;
@@ -190,7 +201,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
         });
       }
     } catch (e) {
-      debugPrint('[WaliDashboard] Error fetching child data: $e');
+      SafeLog.debug(
+        'wali_dashboard_screen.walidashboard_error_fetching_child_data',
+      );
     }
   }
 
@@ -199,7 +212,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
     HapticFeedback.selectionClick();
 
     // Instant Cache Load for selected child
-    final cachedAtt = await waliStorageService.getCachedTodayAttendance(newChild.id);
+    final cachedAtt = await waliStorageService.getCachedTodayAttendance(
+      newChild.id,
+    );
     final cachedStats = await waliStorageService.getCachedMonthlyStats(
       newChild.id,
       _selectedMonth.month,
@@ -252,7 +267,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Keluar dari Akun Orang Tua?'),
         content: const Text(
-          'Anda dapat masuk kembali kapan saja menggunakan NISN dan PIN ananda.',
+          'Anda dapat masuk kembali menggunakan OTP ke kontak yang terdaftar di sekolah.',
         ),
         actions: [
           TextButton(
@@ -275,7 +290,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
     );
 
     if (shouldLogout == true) {
-      await waliStorageService.clearAll();
+      await AuthRepository().signOut();
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -291,8 +306,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
     // If phone is null or empty, attempt an instant live refresh
     if ((targetPhone == null || targetPhone.isEmpty) && _activeChild != null) {
       try {
-        final fresh =
-            await _waliRepository.getChildProfileById(_activeChild!.id);
+        final fresh = await _waliRepository.getChildProfileById(
+          _activeChild!.id,
+        );
         if (fresh != null) {
           await waliStorageService.saveChild(fresh, makeActive: true);
           if (mounted) {
@@ -311,10 +327,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
           : 'Nomor WhatsApp wali kelas untuk ${_activeChild?.namaKelas ?? 'kelas ini'} belum tersedia.';
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(info),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text(info), behavior: SnackBarBehavior.floating),
       );
       return;
     }
@@ -526,7 +539,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                                       vertical: 3,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.25),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
@@ -542,7 +557,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                                   Text(
                                     'NIS: ${_activeChild!.nis}',
                                     style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.85),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -632,10 +649,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                         SizedBox(height: 2),
                         Text(
                           'Kirim surat izin/sakit mandiri ke Wali Kelas',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.white70,
-                          ),
+                          style: TextStyle(fontSize: 11, color: Colors.white70),
                         ),
                       ],
                     ),
@@ -672,7 +686,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -698,8 +714,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                             Container(
                               padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF8B5CF6)
-                                    .withValues(alpha: 0.12),
+                                color: const Color(
+                                  0xFF8B5CF6,
+                                ).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: const Icon(
@@ -746,7 +763,9 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                                     const SizedBox(width: 4),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 5, vertical: 1.5),
+                                        horizontal: 5,
+                                        vertical: 1.5,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFEF4444),
                                         borderRadius: BorderRadius.circular(8),
@@ -798,14 +817,15 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                   ),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF10B981),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color:
-                              const Color(0xFF10B981).withValues(alpha: 0.2),
+                          color: const Color(0xFF10B981).withValues(alpha: 0.2),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
@@ -813,11 +833,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
                     ),
                     child: const Row(
                       children: [
-                        Icon(
-                          Icons.chat_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
+                        Icon(Icons.chat_rounded, color: Colors.white, size: 18),
                         SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -866,9 +882,7 @@ class _WaliDashboardScreenState extends State<WaliDashboardScreen>
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: const Center(
-        child: CircularProgressIndicator(strokeWidth: 2.5),
-      ),
+      child: const Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
     );
   }
 }
